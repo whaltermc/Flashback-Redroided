@@ -4,7 +4,8 @@
   "compatibilityLevel": "JAVA_25",
   "client": [
     "AsyncFileDialogsMixin",
-    "FlashbackFFmpegFrameRecorderMixin"
+    "FlashbackFFmpegFrameRecorderMixin",
+    "ImGuiNewFrameMixin"
   ],
   "injectors": {
     "defaultRequire": 1
