@@ -7,6 +7,7 @@ import org.slf4j.LoggerFactory;
 import java.lang.invoke.MethodHandles;
 import java.lang.reflect.Field;
 import java.lang.reflect.InvocationHandler;
+import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.lang.reflect.Proxy;
 
@@ -97,7 +98,12 @@ public class FlashbackPreLaunch implements PreLaunchEntrypoint {
             );
         }
 
-        if (Proxy.isProxyClass(original.getClass())) {
+        // Only skip if *our* interceptor is already installed. Another
+        // mod may have wrapped the transformer too; in that case we wrap
+        // theirs instead of silently skipping, so both keep working.
+        if (Proxy.isProxyClass(original.getClass())
+                && Proxy.getInvocationHandler(original)
+                instanceof Interceptor) {
             LOGGER.info(
                     "Flashback ImGui remapper already installed, skipping"
             );
@@ -110,46 +116,11 @@ public class FlashbackPreLaunch implements PreLaunchEntrypoint {
                 cl
         );
 
-        final Object target = original;
-
-        InvocationHandler handler = (proxy, method, args) -> {
-
-            if ("transformClassBytes".equals(method.getName())
-                    && args != null
-                    && args.length >= 3
-                    && args[2] instanceof byte[]) {
-
-                Object result =
-                        method.invoke(target, args);
-
-                byte[] bytes =
-                        result instanceof byte[]
-                                ? (byte[]) result
-                                : (byte[]) args[2];
-
-                String name =
-                        args[0] != null
-                                ? args[0].toString()
-                                : "";
-
-                if (shouldRemap(name)
-                        && bytes != null
-                        && bytes.length > 0) {
-
-                    return FlashbackTransformer.transform(bytes);
-                }
-
-                return result;
-            }
-
-            return method.invoke(target, args);
-        };
-
         Object wrapper =
                 Proxy.newProxyInstance(
                         cl,
                         new Class<?>[]{iface},
-                        handler
+                        new Interceptor(original)
                 );
 
         setFieldValue(
@@ -157,6 +128,82 @@ public class FlashbackPreLaunch implements PreLaunchEntrypoint {
                 "mixinTransformer",
                 wrapper
         );
+    }
+
+    /**
+     * Wraps Mixin's transformer and remaps ImGui bindings in Moulberry
+     * classes after Mixin has run.
+     *
+     * Every class loaded by every mod passes through here, so it must be
+     * transparent: exceptions thrown by the wrapped transformer are
+     * rethrown unchanged (not wrapped in InvocationTargetException /
+     * UndeclaredThrowableException), and a remap failure never stops a
+     * class from loading.
+     */
+    private static final class Interceptor implements InvocationHandler {
+
+        private final Object target;
+        private boolean remapFailureLogged;
+
+        Interceptor(Object target) {
+            this.target = target;
+        }
+
+        @Override
+        public Object invoke(
+                Object proxy,
+                Method method,
+                Object[] args
+        ) throws Throwable {
+            try {
+                if ("transformClassBytes".equals(method.getName())
+                        && args != null
+                        && args.length >= 3
+                        && args[2] instanceof byte[]) {
+
+                    Object result = method.invoke(target, args);
+
+                    byte[] bytes =
+                            result instanceof byte[]
+                                    ? (byte[]) result
+                                    : (byte[]) args[2];
+
+                    String name =
+                            args[0] != null
+                                    ? args[0].toString()
+                                    : "";
+
+                    if (shouldRemap(name)
+                            && bytes != null
+                            && bytes.length > 0) {
+
+                        try {
+                            return FlashbackTransformer.transform(bytes);
+                        } catch (Throwable t) {
+                            if (!remapFailureLogged) {
+                                remapFailureLogged = true;
+                                LOGGER.warn(
+                                        "ImGui remap failed for {}; "
+                                                + "loading it unmodified",
+                                        name,
+                                        t
+                                );
+                            }
+                            return result;
+                        }
+                    }
+
+                    return result;
+                }
+
+                return method.invoke(target, args);
+
+            } catch (InvocationTargetException e) {
+                // Surface the real exception (e.g. a MixinTransformerError
+                // from another mod) instead of hiding it.
+                throw e.getCause() != null ? e.getCause() : e;
+            }
+        }
     }
 
     private static boolean shouldRemap(String className) {
@@ -167,8 +214,7 @@ public class FlashbackPreLaunch implements PreLaunchEntrypoint {
         return className.startsWith(
                 "com.moulberry.flashback"
         ) || className.startsWith(
-                "com.moulberry."
-        );
+                "com.moulberry.");
     }
 
     private static Object getFieldValue(
