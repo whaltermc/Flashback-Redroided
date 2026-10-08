@@ -7,28 +7,13 @@ import org.bytedeco.ffmpeg.avutil.AVDictionary;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
-import org.spongepowered.asm.mixin.injection.Redirect;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 
 import static org.bytedeco.ffmpeg.global.avutil.AV_PIX_FMT_NV12;
 import static org.bytedeco.ffmpeg.global.avutil.av_dict_set;
 
-@Mixin(targets = "com.moulberry.flashback.combo_options.VideoCodec", remap = false)
+@Mixin(targets = "com.moulberry.flashback.combo_options.VideoCodec", remap = false, priority = 1000)
 public abstract class VideoCodecMixin {
-
-    @Redirect(
-            method = "doesEncoderWork",
-            at = @At(
-                    value = "INVOKE",
-                    target = "Lorg/bytedeco/ffmpeg/global/avcodec;avcodec_close(Lorg/bytedeco/ffmpeg/avcodec/AVCodecContext;)I",
-                    remap = false
-            ),
-            remap = false,
-            require = 0
-    )
-    private static int flashbackRedroided$skipRemovedFfmpegClose(AVCodecContext codecContext) {
-        return 0;
-    }
 
     @Inject(
             method = "doesEncoderWork",
@@ -40,8 +25,7 @@ public abstract class VideoCodecMixin {
                              "Lorg/bytedeco/ffmpeg/avutil/AVDictionary;)I",
                     remap = false
             ),
-            remap = false,
-            require = 0
+            remap = false
     )
     private static void flashbackRedroided$forceNdkOnProbe(
             AVCodec codec,

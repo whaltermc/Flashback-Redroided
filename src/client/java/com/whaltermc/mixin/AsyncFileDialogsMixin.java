@@ -4,7 +4,6 @@ import com.moulberry.flashback.Flashback;
 import com.whaltermc.MobileCompat;
 import net.minecraft.client.Minecraft;
 import org.spongepowered.asm.mixin.Mixin;
-import org.spongepowered.asm.mixin.Overwrite;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
@@ -16,7 +15,8 @@ import java.util.concurrent.CompletableFuture;
 
 @Mixin(
         targets = "com.moulberry.flashback.exporting.AsyncFileDialogs",
-        remap = false
+        remap = false,
+        priority = 1000
 )
 public class AsyncFileDialogsMixin {
 
@@ -95,58 +95,58 @@ public class AsyncFileDialogsMixin {
         return candidate.toFile();
     }
 
-    @Overwrite
-    public static CompletableFuture<String> saveFileDialog(
+    @Inject(
+            method = "saveFileDialog",
+            at = @At("HEAD"),
+            cancellable = true,
+            remap = false
+    )
+    private static void flashbackRedroided$saveFileDialog(
             String defaultPath,
             String defaultName,
             String filterDescription,
-            String... filters
+            String[] filters,
+            CallbackInfoReturnable<CompletableFuture<String>> cir
     ) {
-        File exportDir =
-                flashbackRedroided$getExportDir();
+        File exportDir = flashbackRedroided$getExportDir();
 
-        String fileName =
-                flashbackRedroided$addExtension(
-                        defaultName,
-                        filters
-                );
+        String fileName = flashbackRedroided$addExtension(defaultName, filters);
 
-        File output =
-                flashbackRedroided$uniqueOutput(exportDir, fileName);
+        File output = flashbackRedroided$uniqueOutput(exportDir, fileName);
 
         Flashback.LOGGER.info(
                 "Flashback Redroided: Android save path: {}",
                 output.getAbsolutePath()
         );
 
-        return CompletableFuture.completedFuture(
-                output.getAbsolutePath()
-        );
+        cir.setReturnValue(CompletableFuture.completedFuture(output.getAbsolutePath()));
     }
 
-    @Overwrite
-    public static CompletableFuture<String> openFolderDialog(
-            String defaultPath
+    @Inject(
+            method = "openFolderDialog",
+            at = @At("HEAD"),
+            cancellable = true,
+            remap = false
+    )
+    private static void flashbackRedroided$openFolderDialog(
+            String defaultPath,
+            CallbackInfoReturnable<CompletableFuture<String>> cir
     ) {
-        File exportDir =
-                flashbackRedroided$getExportDir();
+        File exportDir = flashbackRedroided$getExportDir();
 
         Flashback.LOGGER.info(
                 "Flashback Redroided: Android folder path: {}",
                 exportDir.getAbsolutePath()
         );
 
-        return CompletableFuture.completedFuture(
-                exportDir.getAbsolutePath()
-        );
+        cir.setReturnValue(CompletableFuture.completedFuture(exportDir.getAbsolutePath()));
     }
 
     @Inject(
             method = "openFileDialog",
             at = @At("HEAD"),
             cancellable = true,
-            remap = false,
-            require = 0
+            remap = false
     )
     private static void flashbackRedroided$disableNativeOpenDialogOnMobile(
             String defaultPath,

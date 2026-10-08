@@ -8,7 +8,7 @@ import org.spongepowered.asm.mixin.injection.Redirect;
 
 import java.nio.ByteBuffer;
 
-@Mixin(targets = "com.moulberry.flashback.exporting.SaveableFramebuffer", remap = false)
+@Mixin(targets = "com.moulberry.flashback.exporting.SaveableFramebuffer", remap = false, priority = 1000)
 public abstract class SaveableFramebufferMixin {
 
     @Redirect(
@@ -18,8 +18,7 @@ public abstract class SaveableFramebufferMixin {
                     target = "Lorg/lwjgl/opengl/GL30C;glMapBuffer(II)Ljava/nio/ByteBuffer;",
                     remap = false
             ),
-            remap = false,
-            require = 0
+            remap = false
     )
     private ByteBuffer flashbackRedroided$mapPixelBufferRange(
             int target,

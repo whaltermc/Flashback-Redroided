@@ -22,7 +22,7 @@ import static org.bytedeco.ffmpeg.global.avutil.av_channel_layout_from_mask;
 import static org.bytedeco.ffmpeg.global.avutil.av_dict_set;
 import static org.bytedeco.ffmpeg.global.swresample.swr_alloc_set_opts2;
 
-@Mixin(value = FFmpegFrameRecorder.class, remap = false)
+@Mixin(value = FFmpegFrameRecorder.class, remap = false, priority = 1000)
 public abstract class FlashbackFFmpegFrameRecorderMixin {
 
     private static final long AV_CH_LAYOUT_MONO     = 0x4L;
@@ -97,62 +97,62 @@ public abstract class FlashbackFFmpegFrameRecorderMixin {
         }
     }
 
-    @Redirect(method = "*", at = @At(value = "INVOKE", target = "Lorg/bytedeco/ffmpeg/global/avutil;av_get_default_channel_layout(I)J", remap = false), remap = false, require = 0)
+    @Redirect(method = {"startUnsafe", "start", "setAudioChannels", "setAudioCodec", "getAudioChannels", "getAudioChannelLayout"}, at = @At(value = "INVOKE", target = "Lorg/bytedeco/ffmpeg/global/avutil;av_get_default_channel_layout(I)J", remap = false), remap = false, require = 0)
     private long flashbackRedroided$defaultChannelLayout(int nbChannels) {
         return defaultMask(nbChannels);
     }
 
-    @Redirect(method = "*", at = @At(value = "INVOKE", target = "Lorg/bytedeco/ffmpeg/avcodec/AVCodecContext;channels(I)Lorg/bytedeco/ffmpeg/avcodec/AVCodecContext;", remap = false), remap = false, require = 0)
+    @Redirect(method = {"startUnsafe", "start", "setAudioChannels", "setAudioCodec", "getAudioChannels", "getAudioChannelLayout"}, at = @At(value = "INVOKE", target = "Lorg/bytedeco/ffmpeg/avcodec/AVCodecContext;channels(I)Lorg/bytedeco/ffmpeg/avcodec/AVCodecContext;", remap = false), remap = false, require = 0)
     private AVCodecContext flashbackRedroided$ctxChannelsSet(AVCodecContext ctx, int channels) {
         applyChLayout(ctx, channels);
         return ctx;
     }
 
-    @Redirect(method = "*", at = @At(value = "INVOKE", target = "Lorg/bytedeco/ffmpeg/avcodec/AVCodecContext;channel_layout(J)Lorg/bytedeco/ffmpeg/avcodec/AVCodecContext;", remap = false), remap = false, require = 0)
+    @Redirect(method = {"startUnsafe", "start", "setAudioChannels", "setAudioCodec", "getAudioChannels", "getAudioChannelLayout"}, at = @At(value = "INVOKE", target = "Lorg/bytedeco/ffmpeg/avcodec/AVCodecContext;channel_layout(J)Lorg/bytedeco/ffmpeg/avcodec/AVCodecContext;", remap = false), remap = false, require = 0)
     private AVCodecContext flashbackRedroided$ctxChannelLayoutSet(AVCodecContext ctx, long mask) {
         applyChLayoutMask(ctx, mask);
         return ctx;
     }
 
-    @Redirect(method = "*", at = @At(value = "INVOKE", target = "Lorg/bytedeco/ffmpeg/avcodec/AVCodecContext;channels()I", remap = false), remap = false, require = 0)
+    @Redirect(method = {"startUnsafe", "start", "setAudioChannels", "setAudioCodec", "getAudioChannels", "getAudioChannelLayout"}, at = @At(value = "INVOKE", target = "Lorg/bytedeco/ffmpeg/avcodec/AVCodecContext;channels()I", remap = false), remap = false, require = 0)
     private int flashbackRedroided$ctxChannelsGet(AVCodecContext ctx) {
         if (ctx == null || ctx.ch_layout() == null) return 0;
         return ctx.ch_layout().nb_channels();
     }
 
-    @Redirect(method = "*", at = @At(value = "INVOKE", target = "Lorg/bytedeco/ffmpeg/avcodec/AVCodecContext;channel_layout()J", remap = false), remap = false, require = 0)
+    @Redirect(method = {"startUnsafe", "start", "setAudioChannels", "setAudioCodec", "getAudioChannels", "getAudioChannelLayout"}, at = @At(value = "INVOKE", target = "Lorg/bytedeco/ffmpeg/avcodec/AVCodecContext;channel_layout()J", remap = false), remap = false, require = 0)
     private long flashbackRedroided$ctxChannelLayoutGet(AVCodecContext ctx) {
         int nb = 0;
         if (ctx != null && ctx.ch_layout() != null) nb = ctx.ch_layout().nb_channels();
         return defaultMask(nb);
     }
 
-    @Redirect(method = "*", at = @At(value = "INVOKE", target = "Lorg/bytedeco/ffmpeg/avutil/AVFrame;channels(I)Lorg/bytedeco/ffmpeg/avutil/AVFrame;", remap = false), remap = false, require = 0)
+    @Redirect(method = {"record", "recordSamples", "recordUnsafe", "getFrameAudioChannels", "getFrameAudioChannelLayout"}, at = @At(value = "INVOKE", target = "Lorg/bytedeco/ffmpeg/avutil/AVFrame;channels(I)Lorg/bytedeco/ffmpeg/avutil/AVFrame;", remap = false), remap = false, require = 0)
     private AVFrame flashbackRedroided$frameChannelsSet(AVFrame frame, int channels) {
         applyFrameChLayout(frame, channels);
         return frame;
     }
 
-    @Redirect(method = "*", at = @At(value = "INVOKE", target = "Lorg/bytedeco/ffmpeg/avutil/AVFrame;channel_layout(J)Lorg/bytedeco/ffmpeg/avutil/AVFrame;", remap = false), remap = false, require = 0)
+    @Redirect(method = {"record", "recordSamples", "recordUnsafe", "getFrameAudioChannels", "getFrameAudioChannelLayout"}, at = @At(value = "INVOKE", target = "Lorg/bytedeco/ffmpeg/avutil/AVFrame;channel_layout(J)Lorg/bytedeco/ffmpeg/avutil/AVFrame;", remap = false), remap = false, require = 0)
     private AVFrame flashbackRedroided$frameChannelLayoutSet(AVFrame frame, long mask) {
         applyFrameChLayoutMask(frame, mask);
         return frame;
     }
 
-    @Redirect(method = "*", at = @At(value = "INVOKE", target = "Lorg/bytedeco/ffmpeg/avutil/AVFrame;channels()I", remap = false), remap = false, require = 0)
+    @Redirect(method = {"record", "recordSamples", "recordUnsafe", "getFrameAudioChannels", "getFrameAudioChannelLayout"}, at = @At(value = "INVOKE", target = "Lorg/bytedeco/ffmpeg/avutil/AVFrame;channels()I", remap = false), remap = false, require = 0)
     private int flashbackRedroided$frameChannelsGet(AVFrame frame) {
         if (frame == null || frame.ch_layout() == null) return 0;
         return frame.ch_layout().nb_channels();
     }
 
-    @Redirect(method = "*", at = @At(value = "INVOKE", target = "Lorg/bytedeco/ffmpeg/avutil/AVFrame;channel_layout()J", remap = false), remap = false, require = 0)
+    @Redirect(method = {"record", "recordSamples", "recordUnsafe", "getFrameAudioChannels", "getFrameAudioChannelLayout"}, at = @At(value = "INVOKE", target = "Lorg/bytedeco/ffmpeg/avutil/AVFrame;channel_layout()J", remap = false), remap = false, require = 0)
     private long flashbackRedroided$frameChannelLayoutGet(AVFrame frame) {
         int nb = 0;
         if (frame != null && frame.ch_layout() != null) nb = frame.ch_layout().nb_channels();
         return defaultMask(nb);
     }
 
-    @Redirect(method = "*", at = @At(value = "INVOKE", target = "Lorg/bytedeco/ffmpeg/global/swresample;swr_alloc_set_opts(Lorg/bytedeco/ffmpeg/swresample/SwrContext;JIIJIIILorg/bytedeco/javacpp/Pointer;)Lorg/bytedeco/ffmpeg/swresample/SwrContext;", remap = false), remap = false, require = 0)
+    @Redirect(method = {"startUnsafe", "start", "initAudioResampler", "createAudioResampler"}, at = @At(value = "INVOKE", target = "Lorg/bytedeco/ffmpeg/global/swresample;swr_alloc_set_opts(Lorg/bytedeco/ffmpeg/swresample/SwrContext;JIIJIIILorg/bytedeco/javacpp/Pointer;)Lorg/bytedeco/ffmpeg/swresample/SwrContext;", remap = false), remap = false, require = 0)
     private SwrContext flashbackRedroided$swrAllocSetOpts(
             SwrContext s,
             long outChLayout, int outSampleFmt, int outSampleRate,
@@ -175,13 +175,13 @@ public abstract class FlashbackFFmpegFrameRecorderMixin {
         return s;
     }
 
-    @Redirect(method = "*", at = @At(value = "INVOKE", target = "Lorg/bytedeco/ffmpeg/avutil/AVFrame;key_frame()I", remap = false), remap = false, require = 0)
+    @Redirect(method = {"record", "recordSamples", "recordUnsafe", "isKeyFrame", "setKeyFrame"}, at = @At(value = "INVOKE", target = "Lorg/bytedeco/ffmpeg/avutil/AVFrame;key_frame()I", remap = false), remap = false, require = 0)
     private int flashbackRedroided$getKeyFrame(AVFrame frame) {
         if (frame == null) return 0;
         return (frame.flags() & AVFrame.AV_FRAME_FLAG_KEY) != 0 ? 1 : 0;
     }
 
-    @Redirect(method = "*", at = @At(value = "INVOKE", target = "Lorg/bytedeco/ffmpeg/avutil/AVFrame;key_frame(I)Lorg/bytedeco/ffmpeg/avutil/AVFrame;", remap = false), remap = false, require = 0)
+    @Redirect(method = {"record", "recordSamples", "recordUnsafe", "isKeyFrame", "setKeyFrame"}, at = @At(value = "INVOKE", target = "Lorg/bytedeco/ffmpeg/avutil/AVFrame;key_frame(I)Lorg/bytedeco/ffmpeg/avutil/AVFrame;", remap = false), remap = false, require = 0)
     private AVFrame flashbackRedroided$setKeyFrame(AVFrame frame, int key) {
         if (frame == null) return null;
         int flags = frame.flags();
@@ -198,8 +198,7 @@ public abstract class FlashbackFFmpegFrameRecorderMixin {
             target = "Lorg/bytedeco/ffmpeg/global/avcodec;avcodec_open2(Lorg/bytedeco/ffmpeg/avcodec/AVCodecContext;Lorg/bytedeco/ffmpeg/avcodec/AVCodec;Lorg/bytedeco/ffmpeg/avutil/AVDictionary;)I",
             remap = false
         ),
-        remap = false,
-        require = 0
+        remap = false
     )
     private void flashbackRedroided$alwaysNdkMediaCodec(CallbackInfo ci, @Local AVDictionary options) {
         forceNdkMediaCodec(options);
