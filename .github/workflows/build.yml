@@ -33,7 +33,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: flashback-redroided-1.21-${{ github.sha }}
-          path: build/libs/*.jar
+          path: build/libs/flashback-redroided-1.21.11-*.jar
           if-no-files-found: error
 
   release:
