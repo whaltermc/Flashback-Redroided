@@ -1,5 +1,5 @@
 {
-  "required": true,
+  "required": false,
   "package": "com.whaltermc.mixin",
   "compatibilityLevel": "JAVA_21",
   "client": [
@@ -11,7 +11,7 @@
     "SaveableFramebufferMixin"
   ],
   "injectors": {
-    "defaultRequire": 1
+    "defaultRequire": 0
   },
   "mixinextras": {
     "minVersion": "0.5.5"

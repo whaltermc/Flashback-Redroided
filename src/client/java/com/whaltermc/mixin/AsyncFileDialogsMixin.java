@@ -99,7 +99,8 @@ public class AsyncFileDialogsMixin {
             method = "saveFileDialog",
             at = @At("HEAD"),
             cancellable = true,
-            remap = false
+            remap = false,
+            require = 0
     )
     private static void flashbackRedroided$saveFileDialog(
             String defaultPath,
@@ -126,7 +127,8 @@ public class AsyncFileDialogsMixin {
             method = "openFolderDialog",
             at = @At("HEAD"),
             cancellable = true,
-            remap = false
+            remap = false,
+            require = 0
     )
     private static void flashbackRedroided$openFolderDialog(
             String defaultPath,
@@ -146,7 +148,8 @@ public class AsyncFileDialogsMixin {
             method = "openFileDialog",
             at = @At("HEAD"),
             cancellable = true,
-            remap = false
+            remap = false,
+            require = 0
     )
     private static void flashbackRedroided$disableNativeOpenDialogOnMobile(
             String defaultPath,

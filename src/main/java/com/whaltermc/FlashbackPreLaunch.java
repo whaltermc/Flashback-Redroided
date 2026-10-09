@@ -169,11 +169,10 @@ public class FlashbackPreLaunch implements PreLaunchEntrypoint {
             return false;
         }
 
-        return className.startsWith(
-                "com.moulberry.flashback"
-        ) || className.startsWith(
-                "com.moulberry."
-        );
+        // Isolation: only Flashback's own classes. Never transform other mods
+        // sharing the com.moulberry package prefix.
+        String dotted = className.replace('/', '.');
+        return dotted.startsWith("com.moulberry.flashback.");
     }
 
     private static Object getFieldValue(

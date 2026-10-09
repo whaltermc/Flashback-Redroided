@@ -13,6 +13,7 @@ import java.util.Map;
 public final class MobileCompat {
 
     private static final boolean MOBILE = detect();
+    private static final boolean MOBILE_GLUES = detectMobileGlues();
     private static final Map<Long, Integer> CURSOR_MODES = new HashMap<>();
     private static final Map<Long, Long> CURSOR_SHAPES = new HashMap<>();
 
@@ -88,6 +89,38 @@ public final class MobileCompat {
 
     public static boolean isMobile() {
         return MOBILE;
+    }
+
+    public static boolean isMobileGlues() {
+        return MOBILE_GLUES;
+    }
+
+    private static boolean detectMobileGlues() {
+        String override = System.getProperty("flashback.redroided.mobileglues");
+        if (override == null) {
+            override = System.getProperty("flashback.mobileglues");
+        }
+        if (override != null) {
+            return Boolean.parseBoolean(override);
+        }
+        try {
+            if (System.getenv("MG_DIR_PATH") != null || System.getenv("MOBILEGLUES_PATH") != null) {
+                return true;
+            }
+            String libgl = System.getenv("LIBGL_NAME");
+            if (libgl != null && libgl.toLowerCase(Locale.ROOT).contains("mobileglues")) {
+                return true;
+            }
+            String[] rendererVars = {"POJAV_RENDERER", "FCL_RENDERER", "ZALITH_RENDERER"};
+            for (String v : rendererVars) {
+                String val = System.getenv(v);
+                if (val != null && val.toLowerCase(Locale.ROOT).contains("mobileglues")) {
+                    return true;
+                }
+            }
+        } catch (Throwable ignored) {
+        }
+        return false;
     }
 
     private static boolean detect() {
@@ -276,7 +309,7 @@ public final class MobileCompat {
         setCursorMode(window, mode);
     }
 
-    static void syncCursorMode(long window, int real) {
+    public static void syncCursorMode(long window, int real) {
         Integer cur = CURSOR_MODES.get(window);
         if (cur == null || cur != real) {
             noteMode(window, real);

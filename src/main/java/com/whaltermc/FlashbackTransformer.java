@@ -69,10 +69,23 @@ public final class FlashbackTransformer {
 
                 @Override
                 public Object mapValue(Object value) {
-                    if (value instanceof String s
-                            && (s.contains("imgui.moulberry90") || s.contains("imgui/moulberry90"))) {
-                        return s.replace("imgui.moulberry90", "imgui.moulberry92")
-                                .replace("imgui/moulberry90", "imgui/moulberry92");
+                    if (value instanceof String s) {
+                        String out = s;
+                        if (s.contains("imgui.moulberry90") || s.contains("imgui/moulberry90")) {
+                            out = out.replace("imgui.moulberry90", "imgui.moulberry92")
+                                    .replace("imgui/moulberry90", "imgui/moulberry92");
+                        }
+                        // MobileGlues/GLES has no GL_ARB_separate_shader_objects, so a
+                        // desktop shader with `: require` fails to compile while `: warn`
+                        // works everywhere (desktop has the extension, GLES only warns).
+                        // Only affects Flashback classes (shouldRemap already narrowed).
+                        if (out.contains("GL_ARB_separate_shader_objects : require")) {
+                            out = out.replace("GL_ARB_separate_shader_objects : require",
+                                    "GL_ARB_separate_shader_objects : warn");
+                        }
+                        if (!out.equals(s)) {
+                            return out;
+                        }
                     }
                     return super.mapValue(value);
                 }
@@ -124,6 +137,7 @@ public final class FlashbackTransformer {
         private final Map<String, Stub> stubs = new LinkedHashMap<>();
         private boolean isInterface;
         private String className;
+        private boolean skip;
 
         GlfwGuard(ClassVisitor next) {
             super(Opcodes.ASM9, next);
@@ -134,6 +148,9 @@ public final class FlashbackTransformer {
                           String superName, String[] interfaces) {
             this.className = name;
             this.isInterface = (access & Opcodes.ACC_INTERFACE) != 0;
+            // Never inject stubs into interfaces or our own classes.
+            this.skip = isInterface
+                    || (name != null && name.startsWith("com/whaltermc/"));
             super.visit(version, access, name, signature, superName, interfaces);
         }
 
@@ -141,13 +158,16 @@ public final class FlashbackTransformer {
         public MethodVisitor visitMethod(int access, String name, String descriptor,
                                          String signature, String[] exceptions) {
             MethodVisitor mv = super.visitMethod(access, name, descriptor, signature, exceptions);
-            if (mv == null) return null;
+            if (mv == null || skip) return mv;
 
             return new MethodVisitor(Opcodes.ASM9, mv) {
                 @Override
                 public void visitMethodInsn(int opcode, String owner, String mName,
                                             String mDesc, boolean itf) {
-                    if (opcode == Opcodes.INVOKESTATIC && GLFW.equals(owner) && !itf) {
+                    // Only guard the known mobile-fragile calls. Everything else
+                    // passes through untouched so other code paths never change.
+                    if (opcode == Opcodes.INVOKESTATIC && GLFW.equals(owner) && !itf
+                            && COMPAT_CALLS.contains(mName + mDesc)) {
                         Stub stub = stubs.computeIfAbsent(mName + mDesc,
                                 k -> new Stub(mName, mDesc,
                                         "flashback$redroided$glfw$" + mName + "$" + stubs.size()));
