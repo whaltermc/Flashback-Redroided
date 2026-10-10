@@ -61,10 +61,9 @@ public abstract class FramebufferMixin {
             if (bufSize[0] > 0 && bufSize[0] < size) {
                 size = bufSize[0];
             }
-            LOGGER.warn("FBA pbo map: {}x{} want={} alloc={} errBefore={}",
-                    width, height, want, bufSize[0], glErr());
+            LOGGER.debug("pbo map: {}x{} want={} alloc={}", width, height, want, bufSize[0]);
         } catch (Throwable t) {
-            LOGGER.warn("FBA pbo map: glGetBufferParameteriv failed", t);
+            LOGGER.debug("pbo map: glGetBufferParameteriv failed", t);
         }
 
         if (size <= 0 || size > Integer.MAX_VALUE) {
@@ -78,9 +77,8 @@ public abstract class FramebufferMixin {
         ByteBuffer mapped = null;
         try {
             mapped = GL30C.glMapBufferRange(target, 0, size, GL30C.GL_MAP_READ_BIT);
-            LOGGER.warn("FBA pbo map: range={} mapped={} err={}", size, mapped != null, glErr());
         } catch (Throwable t) {
-            LOGGER.warn("FBA pbo map: glMapBufferRange threw", t);
+            LOGGER.warn("pbo map: glMapBufferRange threw (err={})", glErr(), t);
         }
         if (mapped != null) {
             return mapped;
@@ -90,10 +88,11 @@ public abstract class FramebufferMixin {
         try {
             ByteBuffer copy = MemoryUtil.memAlloc((int) size);
             GL15C.glGetBufferSubData(target, 0, copy);
-            LOGGER.warn("FBA pbo map: fallback glGetBufferSubData ok err={}", glErr());
+            LOGGER.warn("pbo map: fell back to glGetBufferSubData (err={})", glErr());
             return copy;
         } catch (Throwable t) {
-            LOGGER.warn("FBA pbo map: fallback glGetBufferSubData failed", t);
+            LOGGER.warn("pbo map: glMapBufferRange and glGetBufferSubData both failed (err={})",
+                    glErr(), t);
             return null;
         }
     }
