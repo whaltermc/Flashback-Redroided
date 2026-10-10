@@ -101,7 +101,7 @@ jar {
 }
 
 shadowJar {
-    archiveBaseName.set("${project.archives_base_name}-1.21-1.21.11")
+    archiveBaseName.set("${project.archives_base_name}-${project.mc_range}")
     archiveVersion.set(project.version.toString())
     destinationDirectory.set(layout.buildDirectory.dir("intermediates"))
 
@@ -180,5 +180,5 @@ dependsOn(shadowJar)
 tasks.named("remapJar") {
     dependsOn(shadowJar)
     inputFile.set(shadowJar.archiveFile)
-    archiveBaseName.set("${project.archives_base_name}-1.21.11")
+    archiveBaseName.set("${project.archives_base_name}-${project.mc_range}")
 }
