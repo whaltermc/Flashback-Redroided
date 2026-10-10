@@ -203,7 +203,13 @@ public abstract class FFmpegRecorderMixin {
             if (codec != null && codec.name() != null && !codec.isNull()
                     && codec.name().getString().endsWith("_mediacodec")
                     && ctx != null && !ctx.isNull()) {
-                if (options != null && !options.isNull()) {
+                // Do NOT gate this on !options.isNull(). JavaCV's startUnsafe
+                // builds its options with `new AVDictionary(null)`, whose address
+                // is 0, so the guard silently skipped av_dict_set and ndk_codec
+                // was never applied. av_dict_set takes AVDictionary**; JavaCPP
+                // hands it &address, so a null-address wrapper is valid and
+                // av_dict_set allocates and writes the pointer back.
+                if (options != null) {
                     av_dict_set(options, "ndk_codec", "1", 0);
                 }
                 ctx.pix_fmt(AV_PIX_FMT_NV12);
