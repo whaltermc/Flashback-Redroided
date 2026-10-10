@@ -15,15 +15,13 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 
-/**
- * Folder-based substitute for desktop file dialogs.
- *
- * <p>Imports resolve to a file inside {@code import/}; exports reserve a
- * fresh, never-overwritten path inside {@code export/}. There is no UI at
- * all: the two folders are the interface.
- */
+// Folder-based substitute for desktop file dialogs.
+//
+// Imports resolve to a file inside "import/"; exports reserve a fresh,
+// never-overwritten path inside "export/". There is no UI at all:
+// the two folders are the interface.
 final class FileActions {
-    /** Cap on file-name length so exports stay within filesystem limits. */
+    // Cap on file-name length so exports stay within filesystem limits.
     static final int MAX_NAME_BYTES = 200;
 
     private final Path inboxDir;
@@ -43,11 +41,9 @@ final class FileActions {
         Files.createDirectories(outboxDir);
     }
 
-    /**
-     * Turns dialog filters into plain lowercase extensions. {@code "mp4"},
-     * {@code ".png"}, {@code "*.replay"} and {@code "mp4,mov"} are all
-     * accepted, and comma/space/semicolon separated lists are split apart.
-     */
+    // Turns dialog filters into plain lowercase extensions. "mp4", ".png",
+    // "*.replay" and "mp4,mov" are all accepted, and comma/space/semicolon
+    // separated lists are split apart.
     static List<String> normalizeExtensions(String... raw) {
         var cleaned = new LinkedHashSet<String>();
         if (raw != null) {
@@ -68,10 +64,8 @@ final class FileActions {
         return token.substring(start);
     }
 
-    /**
-     * Whether a file name carries one of the extensions. An empty list
-     * accepts everything; a bare {@code ".ext"} with no stem never matches.
-     */
+    // Whether a file name carries one of the extensions. An empty list
+    // accepts everything; a bare ".ext" with no stem never matches.
     static boolean hasExtension(String fileName, List<String> extensions) {
         if (extensions.isEmpty()) return true;
         String name = fileName.toLowerCase(Locale.ROOT);
@@ -82,15 +76,13 @@ final class FileActions {
         return false;
     }
 
-    /** Newest acceptable file in the import folder, if any. */
+    // Newest acceptable file in the import folder, if any.
     Optional<Path> newestImport(List<String> extensions) throws IOException {
         return findNewest(extensions, Map.of());
     }
 
-    /**
-     * Captures the import folder as file name to {@code "modifiedMillis:size"},
-     * so later polls can tell new or replaced files apart from untouched ones.
-     */
+    // Captures the import folder as file name to "modifiedMillis:size", so
+    // later polls can tell new or replaced files apart from untouched ones.
     Map<String, String> importSnapshot(List<String> extensions) throws IOException {
         var snap = new HashMap<String, String>();
         if (!Files.isDirectory(inboxDir)) return snap;
@@ -103,7 +95,7 @@ final class FileActions {
         return snap;
     }
 
-    /** Newest acceptable file that is new or changed since the given snapshot. */
+    // Newest acceptable file that is new or changed since the given snapshot.
     Optional<Path> newestChanged(List<String> extensions, Map<String, String> before) throws IOException {
         return findNewest(extensions, before);
     }
@@ -144,12 +136,10 @@ final class FileActions {
         return Optional.ofNullable(best);
     }
 
-    /**
-     * Reduces a requested name to a single safe path segment: directory parts,
-     * control characters, reserved symbols, leading dots and trailing
-     * dots/spaces are removed, and the result is capped at 200 UTF-8 bytes
-     * without splitting a surrogate pair.
-     */
+    // Reduces a requested name to a single safe path segment: directory parts,
+    // control characters, reserved symbols, leading dots and trailing
+    // dots/spaces are removed, and the result is capped at 200 UTF-8 bytes
+    // without splitting a surrogate pair.
     static String sanitizeName(String requested) {
         String name = requested == null ? "" : requested;
         int cut = Math.max(name.lastIndexOf('/'), name.lastIndexOf('\\'));
@@ -173,11 +163,8 @@ final class FileActions {
         return safe;
     }
 
-    /**
-     * Reserves a path in the export folder for a new file. Name collisions
-     * gain a counter instead of overwriting: {@code "clip.mp4"} becomes
-     * {@code "clip (1).mp4"}.
-     */
+    // Reserves a path in the export folder for a new file. Name collisions
+    // gain a counter instead of overwriting: "clip.mp4" becomes "clip (1).mp4".
     Path allocateExport(String requestedName, List<String> extensions) throws IOException {
         String name = sanitizeName(requestedName);
         if (name.isEmpty()) name = "export";

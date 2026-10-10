@@ -11,18 +11,16 @@ import java.util.HexFormat;
 import java.util.Locale;
 import java.util.Set;
 
-/**
- * Decides at startup whether the folder hook replaces Flashback's dialogs.
- * Every gate has to pass: the feature flag, Android ARM64, a supported game
- * version and the expected dialog class. Anything failing leaves the vanilla
- * dialogs untouched, and the outcome is printed once as {@code [FBA Files]
- * <status>} for bug reports.
- */
+// Decides at startup whether the folder hook replaces Flashback's dialogs.
+// Every gate has to pass: the feature flag, Android ARM64, a supported game
+// version and the expected dialog class. Anything failing leaves the vanilla
+// dialogs untouched, and the outcome is printed once as "[FBA Files] <status>"
+// for bug reports.
 public final class FileActionsPatch {
     static final String CLASS_PATH = "com/moulberry/flashback/utils/AsyncFileDialogs.class";
-    /** Flashback 0.43.6 for MC 26.1-26.2. Pin a hash here once that release's dialog class has been read. */
+    // Flashback 0.43.6 for MC 26.1-26.2. Pin a hash here once that release's dialog class has been read.
     static final Set<String> CLASS_HASHES = Set.of();
-    /** Game versions this branch supports. */
+    // Game versions this branch supports.
     static final Set<String> GAME_VERSIONS = Set.of("26.1", "26.2");
 
     private static volatile boolean selected;
@@ -33,7 +31,7 @@ public final class FileActionsPatch {
     public static boolean selected() { return selected; }
     public static String status() { return status; }
 
-    /** Entry point, called from pre-launch. Records the outcome and never throws. */
+    // Entry point, called from pre-launch. Records the outcome and never throws.
     public static void select() {
         selected = false;
         String outcome;
@@ -68,7 +66,7 @@ public final class FileActionsPatch {
         return CLASS_HASHES.isEmpty() ? "SELECTED_UNPINNED" : "SELECTED";
     }
 
-    /** True for the inspected dialog bytes; any non-empty bytes while no hash is pinned yet. */
+    // True for the inspected dialog bytes; any non-empty bytes while no hash is pinned yet.
     static boolean dialogMatches(byte[] dialogClass) throws Exception {
         if (dialogClass == null || dialogClass.length == 0) return false;
         if (CLASS_HASHES.isEmpty()) return true;
@@ -76,7 +74,7 @@ public final class FileActionsPatch {
         return CLASS_HASHES.contains(hash);
     }
 
-    /** Import/export root: the {@code -Dfba.fileDir} override when absolute, else the game directory. */
+    // Import/export root: the -Dfba.fileDir override when absolute, else the game directory.
     static Path resolveRoot(String override, Path gameDir) {
         if (override != null && !override.isBlank()) {
             Path custom = Path.of(override.strip());
@@ -86,11 +84,9 @@ public final class FileActionsPatch {
         return gameDir.resolve("flashback-android");
     }
 
-    /**
-     * Android ARM64 probe kept free of client-only types, since this class
-     * lives in the main source set: ARM64 CPU plus an Android system marker
-     * or a known mobile-launcher variable.
-     */
+    // Android ARM64 probe kept free of client-only types, since this class
+    // lives in the main source set: ARM64 CPU plus an Android system marker
+    // or a known mobile-launcher variable.
     static boolean onAndroidArm64() {
         String arch = System.getProperty("os.arch", "").toLowerCase(Locale.ROOT);
         if (!arch.contains("aarch64") && !arch.contains("arm64")) return false;
