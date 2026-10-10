@@ -2,10 +2,22 @@ plugins {
 id 'net.fabricmc.fabric-loom-remap' version "${loom_version}"
 id 'com.gradleup.shadow' version '9.2.2'
 id 'maven-publish'
+id 'com.modrinth.minotaur' version '2.9.0'
 }
 
 group = project.maven_group
 version = project.mod_version
+
+modrinth {
+token = System.getenv("MODRINTH_TOKEN")
+projectId = project.findProperty("modrinth_id") ?: ""
+versionNumber = project.mod_version
+versionType = "release"
+gameVersions = [project.minecraft_version]
+loaders = ["fabric"]
+changelog = System.getenv("MODRINTH_CHANGELOG") ?: "See GitHub releases for changelog: https://github.com/whaltermc/Flashback-Redroided/releases"
+uploadFile = tasks.named("remapJar")
+}
 
 base {
 archivesName = project.archives_base_name
