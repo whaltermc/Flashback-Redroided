@@ -145,7 +145,10 @@ public class FileDialogMixin {
             String[] filters,
             CallbackInfoReturnable<CompletableFuture<String>> cir
     ) {
-        if (FileActionsPatch.selected()) {
+        // Mobile has no native dialog to fall back to, so route it through
+        // the folders too; the bridge uses hardcoded paths when selection
+        // never ran.
+        if (FileActionsPatch.selected() || FileActionsPatch.android()) {
             cir.setReturnValue(FileActionsBridge.open(filters));
         }
     }

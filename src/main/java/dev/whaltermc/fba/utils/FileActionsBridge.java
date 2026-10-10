@@ -2,6 +2,8 @@
 
 package dev.whaltermc.fba.utils;
 
+import net.fabricmc.loader.api.FabricLoader;
+
 import java.io.IOException;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
@@ -31,6 +33,9 @@ import java.util.function.Supplier;
 // - "-Dfba.importMode=newest" picks the newest file instead of waiting.
 // - "-Dfba.importWaitSeconds=N" caps the folder watch (default 300).
 // - "-Dfba.picker=launcher" asks the launcher picker first (default).
+//
+// When startup selection never ran, the folders fall back to hardcoded
+// paths (shared storage, else the game directory) instead of failing.
 public final class FileActionsBridge {
     private static final ExecutorService JOBS = Executors.newSingleThreadExecutor(task -> {
         Thread worker = new Thread(task, "FbaFileActions");
@@ -88,9 +93,30 @@ public final class FileActionsBridge {
         }
     }
 
+    // Hardcoded fallback behind every entry point: when startup selection
+    // never configured the folders, builds them from fixed paths (shared
+    // storage, else the game directory) instead of completing with null.
+    // Runs once; later calls reuse the same folders.
+    private static FileActions ready() {
+        var current = files;
+        if (current != null) return current;
+        synchronized (FileActionsBridge.class) {
+            current = files;
+            if (current != null) return current;
+            try {
+                Path root = FabricLoader.getInstance().getGameDir().resolve("flashback-android");
+                current = configure(root);
+            } catch (Throwable t) {
+                System.err.println("[FBA Files] FALLBACK_FAILED " + t);
+                return null;
+            }
+            return current;
+        }
+    }
+
     // Stands in for openFileDialog: resolves to a matching file from the import folder.
     public static CompletableFuture<String> open(String[] extensions) {
-        var current = files;
+        var current = ready();
         if (current == null) {
             System.err.println("[FBA Files] NOT_CONFIGURED");
             return CompletableFuture.completedFuture(null);
@@ -219,7 +245,7 @@ public final class FileActionsBridge {
     // Stands in for saveFileDialog: reserves a never-overwritten path in the export folder.
     public static CompletableFuture<String> save(String defaultName, String[] extensions) {
         return submit(() -> {
-            var current = files;
+            var current = ready();
             if (current == null) return null;
             try {
                 Path target = current.allocateExport(defaultName, FileActions.normalizeExtensions(extensions));
@@ -235,7 +261,7 @@ public final class FileActionsBridge {
     // Stands in for openFolderDialog: the export folder, created on demand.
     public static CompletableFuture<String> folder() {
         return submit(() -> {
-            var current = files;
+            var current = ready();
             if (current == null) return null;
             try {
                 Files.createDirectories(current.outbox());
@@ -247,9 +273,11 @@ public final class FileActionsBridge {
         });
     }
 
-    // Runs work on the file-actions thread; completes with null when the hook was never configured.
+    // Runs work on the file-actions thread; falls back to hardcoded folders
+    // when startup selection never ran, and completes with null only when
+    // even that fails.
     private static CompletableFuture<String> submit(Supplier<String> work) {
-        if (files == null) {
+        if (ready() == null) {
             System.err.println("[FBA Files] NOT_CONFIGURED");
             return CompletableFuture.completedFuture(null);
         }

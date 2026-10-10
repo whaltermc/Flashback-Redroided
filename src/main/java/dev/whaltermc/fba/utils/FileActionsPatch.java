@@ -31,6 +31,13 @@ public final class FileActionsPatch {
     public static boolean selected() { return selected; }
     public static String status() { return status; }
 
+    // Whether this device looks like Android ARM64. Public so dialog hooks
+    // outside this package can route mobile devices to the folders even when
+    // startup selection did not run.
+    public static boolean android() {
+        return onAndroidArm64();
+    }
+
     // Entry point, called from pre-launch. Records the outcome and never throws.
     public static void select() {
         selected = false;
