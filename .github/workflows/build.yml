@@ -38,7 +38,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: flashback-redroided-${{ matrix.branch }}-${{ github.sha }}
-          path: build/libs/*-all.jar
+          path: |
+            build/libs/flashback-android-*-*.jar
+            !build/libs/*-sources.jar
           if-no-files-found: error
 
       - name: Publish to Modrinth
