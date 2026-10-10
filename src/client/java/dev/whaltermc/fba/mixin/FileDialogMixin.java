@@ -3,6 +3,8 @@
 package dev.whaltermc.fba.mixin;
 
 import dev.whaltermc.fba.AndroidInput;
+import dev.whaltermc.fba.utils.FileActionsBridge;
+import dev.whaltermc.fba.utils.FileActionsPatch;
 import net.minecraft.client.Minecraft;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -17,7 +19,7 @@ import java.nio.file.Path;
 import java.util.concurrent.CompletableFuture;
 
 @Mixin(
-        targets = "com.moulberry.flashback.exporting.AsyncFileDialogs",
+        targets = "com.moulberry.flashback.utils.AsyncFileDialogs",
         remap = false,
         priority = 1000
 )
@@ -148,7 +150,7 @@ public class FileDialogMixin {
     }
 
     @Inject(
-            method = "saveFileDialog",
+            method = "saveFileDialog(Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;[Ljava/lang/String;)Ljava/util/concurrent/CompletableFuture;",
             at = @At("HEAD"),
             cancellable = true,
             remap = false,
@@ -161,6 +163,10 @@ public class FileDialogMixin {
             String[] filters,
             CallbackInfoReturnable<CompletableFuture<String>> cir
     ) {
+        if (FileActionsPatch.selected()) {
+            cir.setReturnValue(FileActionsBridge.save(defaultName, filters));
+            return;
+        }
         File exportDir = flashbackRedroided$getExportDir();
         String fileName = flashbackRedroided$addExtension(defaultName, filters);
         File output = flashbackRedroided$uniqueOutput(exportDir, fileName);
@@ -168,7 +174,7 @@ public class FileDialogMixin {
     }
 
     @Inject(
-            method = "openFolderDialog",
+            method = "openFolderDialog(Ljava/lang/String;)Ljava/util/concurrent/CompletableFuture;",
             at = @At("HEAD"),
             cancellable = true,
             remap = false,
@@ -178,12 +184,16 @@ public class FileDialogMixin {
             String defaultPath,
             CallbackInfoReturnable<CompletableFuture<String>> cir
     ) {
+        if (FileActionsPatch.selected()) {
+            cir.setReturnValue(FileActionsBridge.folder());
+            return;
+        }
         File exportDir = flashbackRedroided$getExportDir();
         cir.setReturnValue(CompletableFuture.completedFuture(exportDir.getAbsolutePath()));
     }
 
     @Inject(
-            method = "openFileDialog",
+            method = "openFileDialog(Ljava/lang/String;Ljava/lang/String;[Ljava/lang/String;)Ljava/util/concurrent/CompletableFuture;",
             at = @At("HEAD"),
             cancellable = true,
             remap = false,
@@ -195,6 +205,10 @@ public class FileDialogMixin {
             String[] filters,
             CallbackInfoReturnable<CompletableFuture<String>> cir
     ) {
+        if (FileActionsPatch.selected()) {
+            cir.setReturnValue(FileActionsBridge.open(filters));
+            return;
+        }
         if (AndroidInput.isMobile()) {
             cir.setReturnValue(CompletableFuture.completedFuture(null));
         }
