@@ -52,6 +52,11 @@ public abstract class FramebufferMixin {
     private static ByteBuffer cachedCopy;
     private static int cachedSize;
 
+    /** Consecutive readback frames whose sampled pixels were all zero. */
+    private static int blankStreak;
+    /** Total readback frames seen, for throttled logging. */
+    private static long framesSeen;
+
     @WrapOperation(
             method = "finishDownload",
             at = @At(
@@ -130,6 +135,7 @@ public abstract class FramebufferMixin {
                         Integer.toHexString(err), size);
             } else {
                 usedReadback = true;
+                sampleFrameContent(copy, size);
                 return copy;
             }
         } catch (Throwable t) {
@@ -149,6 +155,82 @@ public abstract class FramebufferMixin {
 
         // Last resort: Flashback's own behaviour, so we never make it worse.
         return original.call(target, access);
+    }
+
+    /**
+     * Samples scattered pixels of a successfully read frame and logs when
+     * frames are uniformly blank. A consistently blank stream means the PBO
+     * itself contains zeros (glReadPixels/flip-blit upstream produced nothing),
+     * while frames with content but a black output file point at the encoder
+     * instead. Absolute reads only; buffer position is left untouched.
+     */
+    private static void sampleFrameContent(ByteBuffer copy, int size) {
+        boolean blank = true;
+        try {
+            int samples = Math.min(256, size / 4);
+            int stride = Math.max(1, (size / 4) / samples);
+            for (int i = 0; i < samples; i++) {
+                if (copy.getInt(i * stride * 4) != 0) {
+                    blank = false;
+                    break;
+                }
+            }
+        } catch (Throwable t) {
+            LOGGER.warn("pbo readback: frame sampling failed", t);
+            return;
+        }
+        framesSeen++;
+        if (blank) {
+            blankStreak++;
+            if (blankStreak == 1 || blankStreak % 600 == 0) {
+                LOGGER.warn("pbo readback: frame pixels are all zero ({} consecutive blank frames, size={})",
+                        blankStreak, size);
+            }
+        } else if (blankStreak > 0) {
+            LOGGER.warn("pbo readback: frames have non-zero pixels again after {} blank frames",
+                    blankStreak);
+            blankStreak = 0;
+        }
+    }
+
+    /**
+     * Watches Flashback's {@code glReadPixels} into the PBO in
+     * {@code startDownload}. If the driver rejects the PACK_BUFFER read, the
+     * PBO keeps whatever it had (zeros) and every exported frame is black no
+     * matter how well the later readback works. Read-only: the call itself is
+     * always forwarded unchanged.
+     */
+    @WrapOperation(
+            method = "startDownload",
+            at = @At(
+                    value = "INVOKE",
+                    target = "Lorg/lwjgl/opengl/GL30C;glReadPixels(IIIIIIJ)V",
+                    remap = false
+            ),
+            remap = false,
+            require = 0
+    )
+    private void flashbackRedroided$checkReadPixels(
+            int x, int y, int width, int height, int format, int type, long pixels,
+            Operation<Void> original
+    ) {
+        try {
+            for (int i = 0; i < 16 && GL30C.glGetError() != GL30C.GL_NO_ERROR; i++) {
+                // drain stale errors so the post-call check is meaningful
+            }
+        } catch (Throwable ignored) {
+            // best effort
+        }
+        original.call(x, y, width, height, format, type, pixels);
+        try {
+            int err = GL30C.glGetError();
+            if (err != GL30C.GL_NO_ERROR) {
+                LOGGER.warn("pbo download: glReadPixels failed, GL error 0x{} ({}x{} fmt={} type={})",
+                        Integer.toHexString(err), width, height, format, type);
+            }
+        } catch (Throwable ignored) {
+            // best effort
+        }
     }
 
     /**
