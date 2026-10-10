@@ -42,6 +42,26 @@ public class FileDialogMixin {
     private static volatile CompletableFuture<String> ongoingDialog;
     private static volatile SDL_DialogFileCallbackI heldSdlCallback;
 
+    // Shows an SDL dialog; the callback and tinyfd/fallback legs differ per dialog.
+    private interface SdlShower {
+        void show(SDL_DialogFileCallbackI callback, long window) throws Throwable;
+    }
+
+    // Post-processes an SDL-picked path; null in, null out when there is nothing to fix.
+    private interface PathFix {
+        String fix(String path);
+    }
+
+    // Blocking tinyfd call; null or empty when it has nothing to offer.
+    private interface TinyAttempt {
+        String run() throws Throwable;
+    }
+
+    // Last-resort hardcoded path; null when there is none (imports).
+    private interface HardFallback {
+        String run() throws Throwable;
+    }
+
     private static File flashbackRedroided$getDefaultExportDir() {
         File dir = new File(
                 Minecraft.getInstance().gameDirectory,
@@ -194,6 +214,131 @@ public class FileDialogMixin {
         return pointers;
     }
 
+    // Appends the single-filter extension when the picked name has none.
+    private static String flashbackRedroided$withExtension(String path, String autoExtension) {
+        if (path != null && autoExtension != null && path.indexOf('.') < 0) {
+            return path + "." + autoExtension;
+        }
+        return path;
+    }
+
+    // Current SDL error, or empty when the dialog was simply cancelled.
+    private static String flashbackRedroided$sdlError() {
+        try {
+            String error = SDLError.SDL_GetError();
+            return error != null ? error : "";
+        } catch (Throwable ignored) {
+            return "";
+        }
+    }
+
+    // Shared SDL attempt used by all three dialogs. Shows the dialog on the
+    // caller thread like vanilla; on backend failure it frees the filter and
+    // hands the tinyfd/fallback legs to the worker via onSdlFailed.
+    private static void flashbackRedroided$attemptSdl(
+            CompletableFuture<String> future,
+            String kind,
+            SdlFilter filter,
+            SdlShower shower,
+            PathFix fixResult,
+            Runnable onSdlFailed
+    ) {
+        long window;
+        try {
+            window = Minecraft.getInstance().getWindow().handle();
+        } catch (Throwable t) {
+            if (filter != null) {
+                filter.free();
+            }
+            Flashback.LOGGER.debug("No game window for SDL {} dialog, trying tinyfd", kind, t);
+            onSdlFailed.run();
+            return;
+        }
+
+        SDL_DialogFileCallbackI callback = (userdata, filelist, filterIndex) -> {
+            if (filter != null) {
+                filter.free();
+            }
+            if (filelist == 0) {
+                String error = flashbackRedroided$sdlError();
+                if (error.isEmpty()) {
+                    flashbackRedroided$settleDialog(future, null);
+                    return;
+                }
+                Flashback.LOGGER.warn("SDL {} dialog failed ({}); trying tinyfd", kind, error);
+                onSdlFailed.run();
+                return;
+            }
+            flashbackRedroided$settleDialog(
+                    future, fixResult.fix(MemoryUtil.memUTF8Safe(MemoryUtil.memGetAddress(filelist))));
+        };
+        heldSdlCallback = callback;
+        try {
+            SDLError.SDL_ClearError();
+            shower.show(callback, window);
+        } catch (Throwable t) {
+            if (filter != null) {
+                filter.free();
+            }
+            Flashback.LOGGER.debug("SDL {} dialog unavailable, trying tinyfd", kind, t);
+            onSdlFailed.run();
+        }
+    }
+
+    // Runs a blocking tinyfd call plus a hardcoded fallback, always off-thread.
+    // Empty tinyfd results fall through to the fallback; both failing settles null.
+    private static void flashbackRedroided$tinyThenFallback(
+            CompletableFuture<String> future,
+            TinyAttempt tiny,
+            HardFallback fallback
+    ) {
+        DIALOG_WORKER.execute(() -> {
+            String value = null;
+            try {
+                value = tiny.run();
+                if (value != null && value.isEmpty()) {
+                    value = null;
+                }
+            } catch (Throwable ignored) {
+            }
+            if (value == null) {
+                try {
+                    value = fallback.run();
+                } catch (Throwable ignored) {
+                    value = null;
+                }
+            }
+            flashbackRedroided$settleDialog(future, value);
+        });
+    }
+
+    // Hardcoded game-dir export path; exports must land somewhere.
+    private static String flashbackRedroided$fallbackExportPath(String defaultName, String autoExtension) {
+        String name = defaultName;
+        if (name != null && autoExtension != null && name.indexOf('.') < 0) {
+            name = name + "." + autoExtension;
+        }
+        File fallback = new File(
+                flashbackRedroided$getDefaultExportDir(),
+                name != null ? name : "export"
+        );
+        Flashback.LOGGER.warn(
+                "Using default export path: {}",
+                fallback.getAbsolutePath()
+        );
+        return fallback.getAbsolutePath();
+    }
+
+    // Hardcoded game-dir export folder.
+    private static String flashbackRedroided$fallbackExportFolder() {
+        File fallback = flashbackRedroided$getDefaultExportDir();
+        Flashback.LOGGER.warn(
+                "Using default export folder: {}",
+                fallback.getAbsolutePath()
+        );
+        return fallback.getAbsolutePath();
+    }
+
     @Overwrite
     public static CompletableFuture<String> saveFileDialog(
             String defaultPath,
@@ -212,112 +357,36 @@ public class FileDialogMixin {
         String autoExtension =
                 filters.length == 1 ? filters[0] : null;
 
+        Runnable cascade = () -> flashbackRedroided$tinyThenFallback(
+                future,
+                () -> {
+                    try (var stack = MemoryStack.stackPush()) {
+                        return flashbackRedroided$withExtension(
+                                TinyFileDialogs.tinyfd_saveFileDialog(
+                                        filterDescription != null ? filterDescription : "Save file",
+                                        defaultName != null && !defaultName.isEmpty() ? defaultName : "export",
+                                        flashbackRedroided$tinyPatterns(stack, filters),
+                                        filterDescription),
+                                autoExtension);
+                    }
+                },
+                () -> flashbackRedroided$fallbackExportPath(defaultName, autoExtension));
+
         SdlFilter sdlFilter;
         try {
             sdlFilter = SdlFilter.of(filterDescription, filters);
         } catch (Throwable t) {
             Flashback.LOGGER.debug("SDL filter alloc failed, trying tinyfd", t);
-            flashbackRedroided$tinySaveThenFallback(future, defaultName, filterDescription, filters, autoExtension);
+            cascade.run();
             return future;
         }
-
-        long window;
-        try {
-            window = Minecraft.getInstance().getWindow().handle();
-        } catch (Throwable t) {
-            sdlFilter.free();
-            Flashback.LOGGER.debug("No game window for SDL dialog, trying tinyfd", t);
-            flashbackRedroided$tinySaveThenFallback(future, defaultName, filterDescription, filters, autoExtension);
-            return future;
-        }
-
-        SDL_DialogFileCallbackI callback = (userdata, filelist, filter) -> {
-            sdlFilter.free();
-            if (filelist == 0) {
-                String error;
-                try {
-                    error = SDLError.SDL_GetError();
-                } catch (Throwable ignored) {
-                    error = "";
-                }
-                if (error == null || error.isEmpty()) {
-                    flashbackRedroided$settleDialog(future, null);
-                    return;
-                }
-                Flashback.LOGGER.warn("SDL save dialog failed ({}); trying tinyfd", error);
-                flashbackRedroided$tinySaveThenFallback(future, defaultName, filterDescription, filters, autoExtension);
-                return;
-            }
-            String path = MemoryUtil.memUTF8Safe(MemoryUtil.memGetAddress(filelist));
-            if (path != null && autoExtension != null && path.indexOf('.') < 0) {
-                path = path + "." + autoExtension;
-            }
-            flashbackRedroided$settleDialog(future, path);
-        };
-        heldSdlCallback = callback;
-        try {
-            SDLError.SDL_ClearError();
-            SDLDialog.SDL_ShowSaveFileDialog(callback, 0L, window, sdlFilter.buffer, defaultLocation);
-        } catch (Throwable t) {
-            sdlFilter.free();
-            Flashback.LOGGER.debug("SDL save dialog unavailable, trying tinyfd", t);
-            flashbackRedroided$tinySaveThenFallback(future, defaultName, filterDescription, filters, autoExtension);
-        }
+        flashbackRedroided$attemptSdl(
+                future, "save", sdlFilter,
+                (callback, window) -> SDLDialog.SDL_ShowSaveFileDialog(
+                        callback, 0L, window, sdlFilter.buffer, defaultLocation),
+                path -> flashbackRedroided$withExtension(path, autoExtension),
+                cascade);
         return future;
-    }
-
-    // Blocking tinyfd save plus the hardcoded game-dir fallback, always off-thread.
-    private static void flashbackRedroided$tinySaveThenFallback(
-            CompletableFuture<String> future,
-            String defaultName,
-            String filterDescription,
-            String[] filters,
-            String autoExtension
-    ) {
-        DIALOG_WORKER.execute(() -> {
-            try {
-                String path = flashbackRedroided$tinySave(defaultName, filterDescription, filters);
-                if (path != null && !path.isEmpty()) {
-                    if (autoExtension != null && path.indexOf('.') < 0) {
-                        path = path + "." + autoExtension;
-                    }
-                    flashbackRedroided$settleDialog(future, path);
-                    return;
-                }
-            } catch (Throwable ignored) {
-            }
-            try {
-                String name = defaultName;
-                if (name != null && autoExtension != null && name.indexOf('.') < 0) {
-                    name = name + "." + autoExtension;
-                }
-                File fallback = new File(
-                        flashbackRedroided$getDefaultExportDir(),
-                        name != null ? name : "export"
-                );
-                Flashback.LOGGER.warn(
-                        "Using default export path: {}",
-                        fallback.getAbsolutePath()
-                );
-                flashbackRedroided$settleDialog(future, fallback.getAbsolutePath());
-            } catch (Throwable t) {
-                flashbackRedroided$settleDialog(future, null);
-            }
-        });
-    }
-
-    private static String flashbackRedroided$tinySave(
-            String defaultName,
-            String filterDescription,
-            String[] filters
-    ) {
-        try (var stack = MemoryStack.stackPush()) {
-            return TinyFileDialogs.tinyfd_saveFileDialog(
-                    filterDescription != null ? filterDescription : "Save file",
-                    defaultName != null && !defaultName.isEmpty() ? defaultName : "export",
-                    flashbackRedroided$tinyPatterns(stack, filters),
-                    filterDescription);
-        }
     }
 
     @Overwrite
@@ -334,79 +403,36 @@ public class FileDialogMixin {
         String defaultLocation =
                 flashbackRedroided$filter(defaultPath);
 
+        // Imports have no hardcoded fallback: null means the user gets no file.
+        Runnable cascade = () -> flashbackRedroided$tinyThenFallback(
+                future,
+                () -> {
+                    try (var stack = MemoryStack.stackPush()) {
+                        return TinyFileDialogs.tinyfd_openFileDialog(
+                                filterDescription != null ? filterDescription : "Open file",
+                                defaultPath != null ? defaultPath : "",
+                                flashbackRedroided$tinyPatterns(stack, filters),
+                                filterDescription,
+                                false);
+                    }
+                },
+                () -> null);
+
         SdlFilter sdlFilter;
         try {
             sdlFilter = SdlFilter.of(filterDescription, filters);
         } catch (Throwable t) {
             Flashback.LOGGER.debug("SDL filter alloc failed, trying tinyfd", t);
-            flashbackRedroided$tinyOpen(future, defaultPath, filterDescription, filters);
+            cascade.run();
             return future;
         }
-
-        long window;
-        try {
-            window = Minecraft.getInstance().getWindow().handle();
-        } catch (Throwable t) {
-            sdlFilter.free();
-            Flashback.LOGGER.debug("No game window for SDL dialog, trying tinyfd", t);
-            flashbackRedroided$tinyOpen(future, defaultPath, filterDescription, filters);
-            return future;
-        }
-
-        SDL_DialogFileCallbackI callback = (userdata, filelist, filter) -> {
-            sdlFilter.free();
-            if (filelist == 0) {
-                String error;
-                try {
-                    error = SDLError.SDL_GetError();
-                } catch (Throwable ignored) {
-                    error = "";
-                }
-                if (error == null || error.isEmpty()) {
-                    flashbackRedroided$settleDialog(future, null);
-                    return;
-                }
-                Flashback.LOGGER.warn("SDL open dialog failed ({}); trying tinyfd", error);
-                flashbackRedroided$tinyOpen(future, defaultPath, filterDescription, filters);
-                return;
-            }
-            flashbackRedroided$settleDialog(
-                    future, MemoryUtil.memUTF8Safe(MemoryUtil.memGetAddress(filelist)));
-        };
-        heldSdlCallback = callback;
-        try {
-            SDLError.SDL_ClearError();
-            SDLDialog.SDL_ShowOpenFileDialog(callback, 0L, window, sdlFilter.buffer, defaultLocation, false);
-        } catch (Throwable t) {
-            sdlFilter.free();
-            Flashback.LOGGER.debug("SDL open dialog unavailable, trying tinyfd", t);
-            flashbackRedroided$tinyOpen(future, defaultPath, filterDescription, filters);
-        }
+        flashbackRedroided$attemptSdl(
+                future, "open", sdlFilter,
+                (callback, window) -> SDLDialog.SDL_ShowOpenFileDialog(
+                        callback, 0L, window, sdlFilter.buffer, defaultLocation, false),
+                path -> path,
+                cascade);
         return future;
-    }
-
-    // Blocking tinyfd open, always off-thread. Null when it has no backend:
-    // unlike exports, an import has no sensible hardcoded path to invent.
-    private static void flashbackRedroided$tinyOpen(
-            CompletableFuture<String> future,
-            String defaultPath,
-            String filterDescription,
-            String[] filters
-    ) {
-        DIALOG_WORKER.execute(() -> {
-            try (var stack = MemoryStack.stackPush()) {
-                String path = TinyFileDialogs.tinyfd_openFileDialog(
-                        filterDescription != null ? filterDescription : "Open file",
-                        defaultPath != null ? defaultPath : "",
-                        flashbackRedroided$tinyPatterns(stack, filters),
-                        filterDescription,
-                        false);
-                flashbackRedroided$settleDialog(
-                        future, path != null && !path.isEmpty() ? path : null);
-            } catch (Throwable t) {
-                flashbackRedroided$settleDialog(future, null);
-            }
-        });
     }
 
     @Overwrite
@@ -421,71 +447,19 @@ public class FileDialogMixin {
         String defaultLocation =
                 flashbackRedroided$filter(defaultPath);
 
-        long window;
-        try {
-            window = Minecraft.getInstance().getWindow().handle();
-        } catch (Throwable t) {
-            Flashback.LOGGER.debug("No game window for SDL dialog, trying tinyfd", t);
-            flashbackRedroided$tinyFolder(future, defaultPath);
-            return future;
-        }
-
-        SDL_DialogFileCallbackI callback = (userdata, filelist, filter) -> {
-            if (filelist == 0) {
-                String error;
-                try {
-                    error = SDLError.SDL_GetError();
-                } catch (Throwable ignored) {
-                    error = "";
-                }
-                if (error == null || error.isEmpty()) {
-                    flashbackRedroided$settleDialog(future, null);
-                    return;
-                }
-                Flashback.LOGGER.warn("SDL folder dialog failed ({}); trying tinyfd", error);
-                flashbackRedroided$tinyFolder(future, defaultPath);
-                return;
-            }
-            flashbackRedroided$settleDialog(
-                    future, MemoryUtil.memUTF8Safe(MemoryUtil.memGetAddress(filelist)));
-        };
-        heldSdlCallback = callback;
-        try {
-            SDLError.SDL_ClearError();
-            SDLDialog.SDL_ShowOpenFolderDialog(callback, 0L, window, defaultLocation, false);
-        } catch (Throwable t) {
-            Flashback.LOGGER.debug("SDL folder dialog unavailable, trying tinyfd", t);
-            flashbackRedroided$tinyFolder(future, defaultPath);
-        }
-        return future;
-    }
-
-    // Blocking tinyfd folder pick plus the hardcoded game-dir fallback, always off-thread.
-    private static void flashbackRedroided$tinyFolder(
-            CompletableFuture<String> future,
-            String defaultPath
-    ) {
-        DIALOG_WORKER.execute(() -> {
-            try {
-                String path = TinyFileDialogs.tinyfd_selectFolderDialog(
+        Runnable cascade = () -> flashbackRedroided$tinyThenFallback(
+                future,
+                () -> TinyFileDialogs.tinyfd_selectFolderDialog(
                         "Select folder",
-                        defaultPath != null ? defaultPath : "");
-                if (path != null && !path.isEmpty()) {
-                    flashbackRedroided$settleDialog(future, path);
-                    return;
-                }
-            } catch (Throwable ignored) {
-            }
-            try {
-                File fallback = flashbackRedroided$getDefaultExportDir();
-                Flashback.LOGGER.warn(
-                        "Using default export folder: {}",
-                        fallback.getAbsolutePath()
-                );
-                flashbackRedroided$settleDialog(future, fallback.getAbsolutePath());
-            } catch (Throwable t) {
-                flashbackRedroided$settleDialog(future, null);
-            }
-        });
+                        defaultPath != null ? defaultPath : ""),
+                FileDialogMixin::flashbackRedroided$fallbackExportFolder);
+
+        flashbackRedroided$attemptSdl(
+                future, "folder", null,
+                (callback, window) -> SDLDialog.SDL_ShowOpenFolderDialog(
+                        callback, 0L, window, defaultLocation, false),
+                path -> path,
+                cascade);
+        return future;
     }
 }
