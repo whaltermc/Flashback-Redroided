@@ -1,4 +1,4 @@
-package com.whaltermc;
+package dev.whaltermc.fba;
 
 import net.fabricmc.loader.api.FabricLoader;
 import net.fabricmc.loader.api.ModContainer;
@@ -11,12 +11,12 @@ import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.util.Optional;
 
-public final class NativeBootstrap {
+public final class NativeLoader {
 
     private static final Logger LOGGER =
-            LoggerFactory.getLogger("flashback-redroided/natives");
+            LoggerFactory.getLogger("flashback_android/natives");
 
-    private static final String MOD_ID = "flashback-redroided";
+    private static final String MOD_ID = "flashback_android";
     private static final String RES_DIR = "lib/arm64-v8a/";
 
     private static final String[] LIBS = {
@@ -30,12 +30,14 @@ public final class NativeBootstrap {
 
     private static boolean done;
 
-    private NativeBootstrap() {}
+    private NativeLoader() {}
 
     public static synchronized void init() {
         if (done) return;
         done = true;
 
+        // Disable JavaCPP's own native loader — we manage loading ourselves.
+        // Restored after loading so other JavaCPP users are not affected.
         System.setProperty("org.bytedeco.javacpp.loadlibraries", "false");
 
         loadSystemLib("mediandk");
@@ -49,7 +51,7 @@ public final class NativeBootstrap {
             String source = "launcher-extracted";
             if (dir == null) {
                 dir = Path.of(System.getProperty("java.io.tmpdir"))
-                        .resolve("flashback-redroided-natives");
+                        .resolve("flashback-android-natives");
                 Files.createDirectories(dir);
                 extract(mod, dir);
                 source = "extracted from jar";
@@ -59,18 +61,20 @@ public final class NativeBootstrap {
             for (String lib : LIBS) {
                 Path p = dir.resolve(lib);
                 if (!Files.isRegularFile(p)) {
-                    LOGGER.warn("Native missing: {}", p);
+                    LOGGER.debug("Native missing: {}", p);
                     continue;
                 }
                 System.load(p.toAbsolutePath().toString());
                 loaded++;
             }
 
-            LOGGER.info("Loaded {} FFmpeg/JavaCPP natives from {} ({})", loaded, dir, source);
+            LOGGER.info("All Android natives loaded. Initializing FBA.");
 
         } catch (Throwable t) {
+            LOGGER.error("Failed to load Android natives", t);
+        } finally {
+            // Always restore so other mods using JavaCPP can manage their own libs.
             System.clearProperty("org.bytedeco.javacpp.loadlibraries");
-            LOGGER.error("Failed to load bundled FFmpeg natives", t);
         }
     }
 
@@ -99,7 +103,7 @@ public final class NativeBootstrap {
         for (String lib : LIBS) {
             Optional<Path> src = mod.findPath(RES_DIR + lib);
             if (src.isEmpty()) {
-                LOGGER.warn("Bundled native missing from jar: {}{}", RES_DIR, lib);
+                LOGGER.debug("Bundled native not found: {}{}", RES_DIR, lib);
                 continue;
             }
             Path dst = dir.resolve(lib);
@@ -114,7 +118,7 @@ public final class NativeBootstrap {
     private static void loadSystemLib(String name) {
         try {
             System.loadLibrary(name);
-            LOGGER.info("Loaded system library: {}", name);
+            // loaded
             return;
         } catch (Throwable ignored) {
         }
@@ -127,11 +131,11 @@ public final class NativeBootstrap {
         for (String path : paths) {
             try {
                 System.load(path);
-                LOGGER.info("Loaded system library from {}", path);
+                // loaded
                 return;
             } catch (Throwable ignored) {
             }
         }
-        LOGGER.warn("Could not load system library {} (NDK MediaCodec may be unavailable)", name);
+        LOGGER.debug("System library {} unavailable", name);
     }
 }

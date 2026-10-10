@@ -1,29 +1,29 @@
-package com.whaltermc;
+package dev.whaltermc.fba;
 
 import imgui.moulberry92.ImGui;
 import imgui.moulberry92.flag.ImGuiKey;
 
-public final class ImGuiKeyShim {
+public final class ImGuiKeyBridge {
 
-    private ImGuiKeyShim() {}
+    private ImGuiKeyBridge() {}
 
     public static boolean isKeyDown(int key) {
-        int k = FlashbackImGuiKeyMapper.map(key);
+        int k = ImGuiKeyMapper.map(key);
         return k != ImGuiKey.None && ImGui.isKeyDown(k);
     }
 
     public static boolean isKeyPressed(int key) {
-        int k = FlashbackImGuiKeyMapper.map(key);
+        int k = ImGuiKeyMapper.map(key);
         return k != ImGuiKey.None && ImGui.isKeyPressed(k);
     }
 
     public static boolean isKeyPressed(int key, boolean repeat) {
-        int k = FlashbackImGuiKeyMapper.map(key);
+        int k = ImGuiKeyMapper.map(key);
         return k != ImGuiKey.None && ImGui.isKeyPressed(k, repeat);
     }
 
     public static boolean isKeyReleased(int key) {
-        int k = FlashbackImGuiKeyMapper.map(key);
+        int k = ImGuiKeyMapper.map(key);
         return k != ImGuiKey.None && ImGui.isKeyReleased(k);
     }
 }

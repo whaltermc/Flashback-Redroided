@@ -1,6 +1,6 @@
-package com.whaltermc.mixin;
+package dev.whaltermc.fba.mixin;
 
-import com.whaltermc.MobileCompat;
+import dev.whaltermc.fba.AndroidInput;
 import com.llamalad7.mixinextras.injector.wrapoperation.Operation;
 import com.llamalad7.mixinextras.injector.wrapoperation.WrapOperation;
 import org.spongepowered.asm.mixin.Mixin;
@@ -13,7 +13,7 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
         targets = "com.moulberry.flashback.editor.ui.CustomImGuiImplGlfw",
         remap = false
 )
-public abstract class CustomImGuiImplGlfwMixin {
+public abstract class ImGuiGlfwMixin {
 
     @Inject(
             method = "updateKeyModifiers",
@@ -38,7 +38,7 @@ public abstract class CustomImGuiImplGlfwMixin {
             CallbackInfoReturnable<Integer> cir
     ) {
         int imguiKey = cir.getReturnValue();
-        cir.setReturnValue(com.whaltermc.FlashbackImGuiKeyMapper.map(imguiKey));
+        cir.setReturnValue(dev.whaltermc.fba.ImGuiKeyMapper.map(imguiKey));
     }
 
     @WrapOperation(
@@ -52,13 +52,13 @@ public abstract class CustomImGuiImplGlfwMixin {
             require = 0
     )
     private void flashbackRedroided$setGrabCursorMode(Operation<Void> original, long window, int mode, int value) {
-        if (mode != org.lwjgl.glfw.GLFW.GLFW_CURSOR || !MobileCompat.isMobile()) {
+        if (mode != org.lwjgl.glfw.GLFW.GLFW_CURSOR || !AndroidInput.isMobile()) {
             original.call(window, mode, value);
             if (mode == org.lwjgl.glfw.GLFW.GLFW_CURSOR) {
-                MobileCompat.syncCursorMode(window, value);
+                AndroidInput.syncCursorMode(window, value);
             }
         } else {
-            MobileCompat.requestCursorMode(window, value);
+            AndroidInput.requestCursorMode(window, value);
         }
     }
 
@@ -73,13 +73,13 @@ public abstract class CustomImGuiImplGlfwMixin {
             require = 0
     )
     private void flashbackRedroided$setCursorModeIfChanged(Operation<Void> original, long window, int mode, int value) {
-        if (mode != org.lwjgl.glfw.GLFW.GLFW_CURSOR || !MobileCompat.isMobile()) {
+        if (mode != org.lwjgl.glfw.GLFW.GLFW_CURSOR || !AndroidInput.isMobile()) {
             original.call(window, mode, value);
             if (mode == org.lwjgl.glfw.GLFW.GLFW_CURSOR) {
-                MobileCompat.syncCursorMode(window, value);
+                AndroidInput.syncCursorMode(window, value);
             }
         } else {
-            MobileCompat.requestCursorMode(window, value);
+            AndroidInput.requestCursorMode(window, value);
         }
     }
 
@@ -94,10 +94,10 @@ public abstract class CustomImGuiImplGlfwMixin {
             require = 0
     )
     private void flashbackRedroided$setCursorPos(Operation<Void> original, long window, double x, double y) {
-        if (!MobileCompat.isMobile()) {
+        if (!AndroidInput.isMobile()) {
             original.call(window, x, y);
         } else {
-            MobileCompat.setCursorPos(window, x, y);
+            AndroidInput.setCursorPos(window, x, y);
         }
     }
 
@@ -112,10 +112,10 @@ public abstract class CustomImGuiImplGlfwMixin {
             require = 0
     )
     private void flashbackRedroided$setCursorShape(Operation<Void> original, long window, long cursor) {
-        if (!MobileCompat.isMobile()) {
+        if (!AndroidInput.isMobile()) {
             original.call(window, cursor);
         } else {
-            MobileCompat.setCursorShape(window, cursor);
+            AndroidInput.setCursorShape(window, cursor);
         }
     }
 }

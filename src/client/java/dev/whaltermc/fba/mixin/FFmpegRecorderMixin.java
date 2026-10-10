@@ -1,4 +1,4 @@
-package com.whaltermc.mixin;
+package dev.whaltermc.fba.mixin;
 
 import com.llamalad7.mixinextras.injector.wrapoperation.Operation;
 import com.llamalad7.mixinextras.injector.wrapoperation.WrapOperation;
@@ -31,10 +31,10 @@ import static org.bytedeco.ffmpeg.global.swresample.swr_alloc_set_opts2;
 // never break at mixin-config time. All handlers are require=0 + WrapOperation
 // so they chain with other mods instead of conflicting like Redirect.
 @Mixin(targets = "org.bytedeco.javacv.FFmpegFrameRecorder", remap = false, priority = 1000)
-public abstract class FlashbackFFmpegFrameRecorderMixin {
+public abstract class FFmpegRecorderMixin {
 
     private static final Logger LOGGER =
-            LoggerFactory.getLogger("flashback-redroided/nv12");
+            LoggerFactory.getLogger("flashback_android");
 
     private static final long AV_CH_LAYOUT_MONO     = 0x4L;
     private static final long AV_CH_LAYOUT_STEREO   = 0x3L;

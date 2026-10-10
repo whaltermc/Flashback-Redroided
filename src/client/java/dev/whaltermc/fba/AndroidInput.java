@@ -1,4 +1,4 @@
-package com.whaltermc;
+package dev.whaltermc.fba;
 
 import net.minecraft.client.Minecraft;
 import org.lwjgl.glfw.GLFW;
@@ -10,7 +10,7 @@ import java.util.HashMap;
 import java.util.Locale;
 import java.util.Map;
 
-public final class MobileCompat {
+public final class AndroidInput {
 
     private static final boolean MOBILE = detect();
     private static final boolean MOBILE_GLUES = detectMobileGlues();
@@ -20,10 +20,10 @@ public final class MobileCompat {
     private static final Map<Long, double[]> LAST_POS = new HashMap<>();
     private static final Map<Long, double[]> GRAB_OFFSET = new HashMap<>();
 
-    private static final Logger LOGGER = LoggerFactory.getLogger("flashback-redroided/cursor");
+    private static final Logger LOGGER = LoggerFactory.getLogger("flashback_android");
     private static int logBudget = 400;
 
-    private MobileCompat() {
+    private AndroidInput() {
     }
 
     private static void trace(String what) {
@@ -32,7 +32,7 @@ public final class MobileCompat {
         }
         logBudget--;
         String caller = StackWalker.getInstance().walk(frames -> frames
-                .filter(f -> !f.getClassName().startsWith("com.whaltermc"))
+                .filter(f -> !f.getClassName().startsWith("dev.whaltermc.fba"))
                 .findFirst()
                 .map(f -> f.getClassName() + "." + f.getMethodName() + ":" + f.getLineNumber())
                 .orElse("?"));
@@ -43,7 +43,7 @@ public final class MobileCompat {
     private static String state() {
         try {
             return "{mcGrabbed=" + Minecraft.getInstance().mouseHandler.isMouseGrabbed()
-                    + " press=" + GlfwCompat.recentPress() + "}";
+                    + " press=" + GlfwWrapper.recentPress() + "}";
         } catch (Throwable t) {
             return "{state?}";
         }

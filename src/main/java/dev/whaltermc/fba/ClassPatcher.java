@@ -1,4 +1,4 @@
-package com.whaltermc;
+package dev.whaltermc.fba;
 
 import org.objectweb.asm.ClassReader;
 import org.objectweb.asm.ClassVisitor;
@@ -14,17 +14,17 @@ import java.nio.charset.StandardCharsets;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
-public final class FlashbackTransformer {
+public final class ClassPatcher {
 
     private static final String FROM = "imgui/moulberry90/";
     private static final String TO = "imgui/moulberry92/";
 
     private static final String IMGUI = TO + "ImGui";
-    private static final String KEY_SHIM = "com/whaltermc/ImGuiKeyShim";
+    private static final String KEY_SHIM = "dev/whaltermc/fba/ImGuiKeyBridge";
 
     private static final String GLFW = "org/lwjgl/glfw/GLFW";
-    private static final String SAFETY = "com/whaltermc/GlfwSafety";
-    private static final String COMPAT = "com/whaltermc/GlfwCompat";
+    private static final String SAFETY = "dev/whaltermc/fba/GlfwFallback";
+    private static final String COMPAT = "dev/whaltermc/fba/GlfwWrapper";
 
     private static final java.util.Set<String> COMPAT_CALLS = java.util.Set.of(
             "glfwGetWindowAttrib(JI)I",
@@ -37,7 +37,7 @@ public final class FlashbackTransformer {
             "glfwGetCursorPos(JLjava/nio/DoubleBuffer;Ljava/nio/DoubleBuffer;)V"
     );
 
-    private FlashbackTransformer() {}
+    private ClassPatcher() {}
 
     public static byte[] transform(byte[] classBytes) {
         if (classBytes == null || classBytes.length == 0) {
@@ -51,49 +51,50 @@ public final class FlashbackTransformer {
             return classBytes;
         }
 
-        ClassReader reader = new ClassReader(classBytes);
-        ClassWriter writer = new ClassWriter(reader, 0);
+        try {
+            ClassReader reader = new ClassReader(classBytes);
+            ClassWriter writer = new ClassWriter(reader, 0);
 
-        ClassVisitor chain = new GlfwGuard(writer);
-        chain = new KeyRedirect(chain);
+            ClassVisitor chain = new GlfwGuard(writer);
+            chain = new KeyRedirect(chain);
 
-        if (hasImGui) {
-            chain = new ClassRemapper(chain, new Remapper() {
-                @Override
-                public String map(String internalName) {
-                    if (internalName != null && internalName.startsWith(FROM)) {
-                        return TO + internalName.substring(FROM.length());
+            if (hasImGui) {
+                chain = new ClassRemapper(chain, new Remapper() {
+                    @Override
+                    public String map(String internalName) {
+                        if (internalName != null && internalName.startsWith(FROM)) {
+                            return TO + internalName.substring(FROM.length());
+                        }
+                        return internalName;
                     }
-                    return internalName;
-                }
 
-                @Override
-                public Object mapValue(Object value) {
-                    if (value instanceof String s) {
-                        String out = s;
-                        if (s.contains("imgui.moulberry90") || s.contains("imgui/moulberry90")) {
-                            out = out.replace("imgui.moulberry90", "imgui.moulberry92")
-                                    .replace("imgui/moulberry90", "imgui/moulberry92");
+                    @Override
+                    public Object mapValue(Object value) {
+                        if (value instanceof String s) {
+                            String out = s;
+                            if (s.contains("imgui.moulberry90") || s.contains("imgui/moulberry90")) {
+                                out = out.replace("imgui.moulberry90", "imgui.moulberry92")
+                                        .replace("imgui/moulberry90", "imgui/moulberry92");
+                            }
+                            if (out.contains("GL_ARB_separate_shader_objects : require")) {
+                                out = out.replace("GL_ARB_separate_shader_objects : require",
+                                        "GL_ARB_separate_shader_objects : warn");
+                            }
+                            if (!out.equals(s)) {
+                                return out;
+                            }
                         }
-                        // MobileGlues/GLES has no GL_ARB_separate_shader_objects, so a
-                        // desktop shader with `: require` fails to compile while `: warn`
-                        // works everywhere (desktop has the extension, GLES only warns).
-                        // Only affects Flashback classes (shouldRemap already narrowed).
-                        if (out.contains("GL_ARB_separate_shader_objects : require")) {
-                            out = out.replace("GL_ARB_separate_shader_objects : require",
-                                    "GL_ARB_separate_shader_objects : warn");
-                        }
-                        if (!out.equals(s)) {
-                            return out;
-                        }
+                        return super.mapValue(value);
                     }
-                    return super.mapValue(value);
-                }
-            });
+                });
+            }
+
+            reader.accept(chain, 0);
+            return writer.toByteArray();
+        } catch (Throwable t) {
+            // Never break class loading for another mod — return original bytes.
+            return classBytes;
         }
-
-        reader.accept(chain, 0);
-        return writer.toByteArray();
     }
 
     private static final class KeyRedirect extends ClassVisitor {
@@ -150,7 +151,7 @@ public final class FlashbackTransformer {
             this.isInterface = (access & Opcodes.ACC_INTERFACE) != 0;
             // Never inject stubs into interfaces or our own classes.
             this.skip = isInterface
-                    || (name != null && name.startsWith("com/whaltermc/"));
+                    || (name != null && name.startsWith("dev/whaltermc/fba/"));
             super.visit(version, access, name, signature, superName, interfaces);
         }
 
@@ -167,7 +168,7 @@ public final class FlashbackTransformer {
                     if (opcode == Opcodes.INVOKESTATIC && GLFW.equals(owner) && !itf) {
                         Stub stub = stubs.computeIfAbsent(mName + mDesc,
                                 k -> new Stub(mName, mDesc,
-                                        "flashback$redroided$glfw$" + mName + "$" + stubs.size()));
+                                        "fba$glfw$" + mName + "$" + stubs.size()));
                         super.visitMethodInsn(Opcodes.INVOKESTATIC, className,
                                 stub.stubName(), stub.desc(), isInterface);
                         return;

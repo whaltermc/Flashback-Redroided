@@ -1,11 +1,11 @@
-package com.whaltermc;
+package dev.whaltermc.fba;
 
 import imgui.moulberry92.flag.ImGuiKey;
 import org.lwjgl.glfw.GLFW;
 
-public final class FlashbackImGuiKeyMapper {
+public final class ImGuiKeyMapper {
 
-    private FlashbackImGuiKeyMapper() {}
+    private ImGuiKeyMapper() {}
 
     private static final int OLD_SHIFT_BEGIN = 584;
     private static final int OLD_SHIFT_END = 616;

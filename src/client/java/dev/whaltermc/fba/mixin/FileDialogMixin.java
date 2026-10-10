@@ -1,8 +1,9 @@
-package com.whaltermc.mixin;
+package dev.whaltermc.fba.mixin;
 
-import com.moulberry.flashback.Flashback;
-import com.whaltermc.MobileCompat;
+import dev.whaltermc.fba.AndroidInput;
 import net.minecraft.client.Minecraft;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
@@ -18,21 +19,18 @@ import java.util.concurrent.CompletableFuture;
         remap = false,
         priority = 1000
 )
-public class AsyncFileDialogsMixin {
+public class FileDialogMixin {
+
+    private static final Logger LOGGER = LoggerFactory.getLogger("flashback_android");
 
     private static File flashbackRedroided$getExportDir() {
         File dir = new File(
                 Minecraft.getInstance().gameDirectory,
                 "flashback/exports"
         );
-
         if (!dir.exists() && !dir.mkdirs()) {
-            Flashback.LOGGER.warn(
-                    "Failed to create Flashback export directory: {}",
-                    dir.getAbsolutePath()
-            );
+            LOGGER.debug("Could not create export directory: {}", dir.getAbsolutePath());
         }
-
         return dir;
     }
 
@@ -110,16 +108,8 @@ public class AsyncFileDialogsMixin {
             CallbackInfoReturnable<CompletableFuture<String>> cir
     ) {
         File exportDir = flashbackRedroided$getExportDir();
-
         String fileName = flashbackRedroided$addExtension(defaultName, filters);
-
         File output = flashbackRedroided$uniqueOutput(exportDir, fileName);
-
-        Flashback.LOGGER.info(
-                "Flashback Redroided: Android save path: {}",
-                output.getAbsolutePath()
-        );
-
         cir.setReturnValue(CompletableFuture.completedFuture(output.getAbsolutePath()));
     }
 
@@ -135,12 +125,6 @@ public class AsyncFileDialogsMixin {
             CallbackInfoReturnable<CompletableFuture<String>> cir
     ) {
         File exportDir = flashbackRedroided$getExportDir();
-
-        Flashback.LOGGER.info(
-                "Flashback Redroided: Android folder path: {}",
-                exportDir.getAbsolutePath()
-        );
-
         cir.setReturnValue(CompletableFuture.completedFuture(exportDir.getAbsolutePath()));
     }
 
@@ -157,11 +141,7 @@ public class AsyncFileDialogsMixin {
             String[] filters,
             CallbackInfoReturnable<CompletableFuture<String>> cir
     ) {
-        if (MobileCompat.isMobile()) {
-            Flashback.LOGGER.warn(
-                    "Native file dialogs are unavailable; place files in {} manually",
-                    flashbackRedroided$getExportDir()
-            );
+        if (AndroidInput.isMobile()) {
             cir.setReturnValue(CompletableFuture.completedFuture(null));
         }
     }

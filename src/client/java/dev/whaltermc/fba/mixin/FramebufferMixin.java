@@ -1,4 +1,4 @@
-package com.whaltermc.mixin;
+package dev.whaltermc.fba.mixin;
 
 import com.llamalad7.mixinextras.injector.wrapoperation.Operation;
 import com.llamalad7.mixinextras.injector.wrapoperation.WrapOperation;
@@ -10,7 +10,7 @@ import org.spongepowered.asm.mixin.injection.At;
 import java.nio.ByteBuffer;
 
 @Mixin(targets = "com.moulberry.flashback.exporting.SaveableFramebuffer", remap = false, priority = 1000)
-public abstract class SaveableFramebufferMixin {
+public abstract class FramebufferMixin {
 
     @WrapOperation(
             method = "finishDownload",

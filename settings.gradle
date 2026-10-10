@@ -9,4 +9,4 @@ pluginManagement {
 	}
 }
 
-rootProject.name = 'flashback-redroided'
+rootProject.name = 'flashback-android'

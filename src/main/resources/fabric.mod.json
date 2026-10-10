@@ -1,34 +1,49 @@
 {
   "schemaVersion": 1,
-  "id": "flashback-redroided",
+  "id": "flashback_android",
   "version": "${version}",
-  "name": "Flashback Redroided",
-  "description": "Android compatibility patches for Flashback (ImGui binding remap + FFmpeg NDK + file dialogs).",
-  "icon": "assets/flashback-redroided/icon.png",
+  "name": "FBA - Flashback For Android",
+  "description": "Bringing Flashback to Android.",
+  "icon": "assets/flashback_android/icon.png",
   "environment": "client",
 
   "authors": [
-    "WhalterMC"
+    {
+      "name": "WhalterMC",
+      "contact": {
+        "homepage": "https://whaltermc.vercel.app"
+      }
+    }
   ],
 
-  "license": "All-Rights-Reserved (mod's own code; bundled FFmpeg/JavaCPP/imgui-java remain under their own licenses, see NOTICE)",
+  "contributors": [
+    {
+      "name": "moulberry",
+      "contact": {
+        "homepage": "https://github.com/moulberry"
+      }
+    }
+  ],
+
+  "license": "LGPL-3.0-or-later",
 
   "contact": {
-    "website": "https://whaltermc.vercel.app/flashback-redroided",
-    "sources": "https://github.com/whaltermc/Flashback-Redroided"
+    "homepage": "https://whaltermc.vercel.app/fba",
+    "sources": "https://github.com/whaltermc/FBA-Flashback-Android",
+    "issues": "https://github.com/whaltermc/FBA-Flashback-Android/issues"
   },
 
   "entrypoints": {
     "main": [
-      "com.whaltermc.FlashbackRedroided"
+      "dev.whaltermc.fba.FbaInitializer"
     ],
     "preLaunch": [
-      "com.whaltermc.FlashbackPreLaunch"
+      "dev.whaltermc.fba.FbaPreLaunch"
     ]
   },
 
   "mixins": [
-    "flashback-redroided.client.mixins.json"
+    "flashback_android.client.mixins.json"
   ],
 
   "depends": {
