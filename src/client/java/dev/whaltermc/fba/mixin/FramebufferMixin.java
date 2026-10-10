@@ -5,7 +5,6 @@ package dev.whaltermc.fba.mixin;
 import com.llamalad7.mixinextras.injector.wrapoperation.Operation;
 import com.llamalad7.mixinextras.injector.wrapoperation.WrapOperation;
 import com.llamalad7.mixinextras.sugar.Local;
-import org.lwjgl.opengl.GL11C;
 import org.lwjgl.opengl.GL15C;
 import org.lwjgl.opengl.GL30C;
 import org.lwjgl.system.MemoryUtil;
@@ -16,25 +15,31 @@ import org.spongepowered.asm.mixin.injection.At;
 
 import java.nio.ByteBuffer;
 
+/**
+ * Reads Flashback's pixel-pack PBO without mapping it.
+ *
+ * <p>Mapping is the wrong tool on this driver. MobileGlues' {@code glMapBuffer}
+ * returns {@code nullptr} whenever a GL error is merely <em>pending</em>
+ * ({@code gl/buffer.cpp}: {@code if (buffer_size <= 0 || glGetError() != GL_NO_ERROR)
+ * return nullptr;}), so any stray error anywhere earlier in the frame turns a
+ * perfectly good readback into Flashback's "OpenGL error occurred while mapping
+ * buffer" crash. GLES also refuses to map a buffer that is bound to a target,
+ * and Flashback leaves the PBO bound to {@code GL_PIXEL_PACK_BUFFER}.
+ *
+ * <p>{@code glGetBufferSubData} sidesteps all of it: no mapping, no pending-error
+ * sensitivity. Both calls need the buffer unbound first, so we unbind up front --
+ * which is what Flashback does immediately afterwards anyway.
+ *
+ * <p>Only if that fails do we try a range map, and only if that fails do we let
+ * Flashback run its original call, so behaviour is never worse than before.
+ */
 @Mixin(targets = "com.moulberry.flashback.exporting.SaveableFramebuffer", remap = false, priority = 1000)
 public abstract class FramebufferMixin {
 
     private static final Logger LOGGER = LoggerFactory.getLogger("flashback_android");
 
-    private static final java.util.concurrent.atomic.AtomicBoolean ENTRY_LOG =
-            new java.util.concurrent.atomic.AtomicBoolean();
-
-    private static String glErr() {
-        int e = GL11C.glGetError();
-        return switch (e) {
-            case GL11C.GL_NO_ERROR -> "GL_NO_ERROR";
-            case GL11C.GL_INVALID_ENUM -> "GL_INVALID_ENUM";
-            case GL11C.GL_INVALID_VALUE -> "GL_INVALID_VALUE";
-            case GL11C.GL_INVALID_OPERATION -> "GL_INVALID_OPERATION";
-            case GL11C.GL_OUT_OF_MEMORY -> "GL_OUT_OF_MEMORY";
-            default -> "0x" + Integer.toHexString(e);
-        };
-    }
+    /** True when the current call returned a plain readback buffer, not a map. */
+    private static boolean usedReadback;
 
     @WrapOperation(
             method = "finishDownload",
@@ -46,69 +51,96 @@ public abstract class FramebufferMixin {
             remap = false,
             require = 0
     )
-    private ByteBuffer flashbackRedroided$mapPixelBufferRange(
+    private ByteBuffer flashbackRedroided$readPixelBuffer(
             int target,
             int access,
             Operation<ByteBuffer> original,
             @Local(argsOnly = true, index = 0) int width,
             @Local(argsOnly = true, index = 1) int height
     ) {
+        usedReadback = false;
+
         long want = (long) width * (long) height * 4L;
-
-        // Log once per session on entry so we can tell definitively whether
-        // this handler runs at all and with what dimensions, and log every
-        // path that yields null -- a silent null is indistinguishable from the
-        // injection not matching.
-        if (ENTRY_LOG.compareAndSet(false, true)) {
-            LOGGER.warn("pbo map: handler entered, target={} access={} {}x{} want={}",
-                    target, access, width, height, want);
-        }
-
-        // Never map past what was actually allocated: an over-long range is
-        // GL_INVALID_VALUE and glMapBufferRange then returns null.
         long size = want;
-        int allocated = -1;
+
+        int allocated = 0;
         try {
             int[] bufSize = new int[1];
             GL15C.glGetBufferParameteriv(target, GL15C.GL_BUFFER_SIZE, bufSize);
             allocated = bufSize[0];
-            if (allocated > 0 && allocated < size) {
-                size = allocated;
-            }
-        } catch (Throwable t) {
-            LOGGER.warn("pbo map: glGetBufferParameteriv failed (err={})", glErr(), t);
+        } catch (Throwable ignored) {
+            // Fall back to the computed size below.
+        }
+
+        // Never read past the real allocation: an over-long range is
+        // GL_INVALID_VALUE and the call returns nothing.
+        if (allocated > 0 && allocated < size) {
+            size = allocated;
         }
 
         if (size <= 0 || size > Integer.MAX_VALUE) {
-            LOGGER.warn("pbo map: refusing to map, size={} allocated={} {}x{} (err={})",
-                    size, allocated, width, height, glErr());
-            return null;
+            LOGGER.warn("pbo readback: bad size {} ({}x{}, allocated {})",
+                    size, width, height, allocated);
+            return original.call(target, access);
         }
 
-        // Flashback leaves the PBO bound to GL_PIXEL_PACK_BUFFER before mapping;
-        // GLES forbids mapping a buffer that is bound to a target.
+        // GLES requires the buffer to be unbound for both of the calls below.
         GL30C.glBindBuffer(target, 0);
 
-        ByteBuffer mapped = null;
+        ByteBuffer copy = null;
         try {
-            mapped = GL30C.glMapBufferRange(target, 0, size, GL30C.GL_MAP_READ_BIT);
-        } catch (Throwable t) {
-            LOGGER.warn("pbo map: glMapBufferRange threw (err={})", glErr(), t);
-        }
-        if (mapped != null) {
-            return mapped;
-        }
-
-        // No mapping available: read the buffer back synchronously instead.
-        try {
-            ByteBuffer copy = MemoryUtil.memAlloc((int) size);
+            copy = MemoryUtil.memAlloc((int) size);
             GL15C.glGetBufferSubData(target, 0, copy);
-            LOGGER.warn("pbo map: fell back to glGetBufferSubData (err={})", glErr());
+            usedReadback = true;
             return copy;
         } catch (Throwable t) {
-            LOGGER.warn("pbo map: glMapBufferRange and glGetBufferSubData both failed (err={})",
-                    glErr(), t);
-            return null;
+            if (copy != null) {
+                try {
+                    MemoryUtil.memFree(copy);
+                } catch (Throwable ignored) {
+                    // best effort
+                }
+            }
+            LOGGER.warn("pbo readback: glGetBufferSubData failed", t);
         }
+
+        // Second choice: range map, now that the buffer is unbound.
+        try {
+            ByteBuffer mapped = GL30C.glMapBufferRange(target, 0, size, GL30C.GL_MAP_READ_BIT);
+            if (mapped != null) {
+                return mapped;
+            }
+        } catch (Throwable t) {
+            LOGGER.warn("pbo readback: glMapBufferRange failed", t);
+        }
+
+        // Last resort: Flashback's own behaviour, so we never make it worse.
+        LOGGER.warn("pbo readback: falling back to glMapBuffer ({}x{}, allocated {})",
+                width, height, allocated);
+        return original.call(target, access);
+    }
+
+    /**
+     * Flashback unmaps whatever it was handed. Nothing was mapped on the
+     * readback path, and unmapping an unmapped buffer is a GL error.
+     */
+    @WrapOperation(
+            method = "finishDownload",
+            at = @At(
+                    value = "INVOKE",
+                    target = "Lorg/lwjgl/opengl/GL30C;glUnmapBuffer(I)Z",
+                    remap = false
+            ),
+            remap = false,
+            require = 0
+    )
+    private boolean flashbackRedroided$skipUnmap(
+            int target,
+            Operation<Boolean> original
+    ) {
+        if (usedReadback) {
+            return true;
+        }
+        return original.call(target);
     }
 }
