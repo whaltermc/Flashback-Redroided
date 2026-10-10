@@ -1,5 +1,5 @@
 plugins {
-id 'net.fabricmc.fabric-loom-remap' version "${loom_version}"
+id 'net.fabricmc.fabric-loom' version "${loom_version}"
 id 'com.gradleup.shadow' version '9.2.2'
 id 'maven-publish'
 id 'com.modrinth.minotaur' version '2.9.0'
@@ -16,7 +16,7 @@ versionType = "release"
 gameVersions = [project.minecraft_version]
 loaders = ["fabric"]
 changelog = System.getenv("MODRINTH_CHANGELOG") ?: "See GitHub releases for changelog: https://github.com/whaltermc/FBA-Flashback-Android/releases"
-uploadFile = tasks.named("remapJar")
+uploadFile = tasks.named("shadowJar")
 }
 
 base {
@@ -49,15 +49,16 @@ mods {
 
 dependencies {
 minecraft "com.mojang:minecraft:${minecraft_version}"
-mappings loom.officialMojangMappings()
-modImplementation "net.fabricmc:fabric-loader:${loader_version}"
-modImplementation "net.fabricmc.fabric-api:fabric-api:${fabric_api_version}"
+// No mappings: Mojang publishes no official mappings for the 26.x line
+// (and Yarn is discontinued there), same as the main branch.
+implementation "net.fabricmc:fabric-loader:${loader_version}"
+implementation "net.fabricmc.fabric-api:fabric-api:${fabric_api_version}"
 
-modCompileOnly "maven.modrinth:4das1Fjq:${flashback_version}"
+compileOnly "maven.modrinth:4das1Fjq:${flashback_version}"
 
 // Bundled via Jar-in-Jar: @WrapOperation injections are inert without it
 // (neither Fabric Loader nor Flashback ship MixinExtras).
-modImplementation(include("io.github.llamalad7:mixinextras-fabric:0.5.5"))
+implementation(include("io.github.llamalad7:mixinextras-fabric:0.5.5"))
 
 shadow files("ffmpeg/javacpp.jar")
 shadow files("ffmpeg/javacpp-android-arm64.jar")
@@ -82,12 +83,12 @@ filesMatching("fabric.mod.json") {
 
 java {
 withSourcesJar()
-sourceCompatibility = JavaVersion.VERSION_21
-targetCompatibility = JavaVersion.VERSION_21
+sourceCompatibility = JavaVersion.VERSION_25
+targetCompatibility = JavaVersion.VERSION_25
 }
 
 tasks.withType(JavaCompile).configureEach {
-options.release = 21
+options.release = 25
 }
 
 jar {
@@ -107,7 +108,7 @@ jar {
 shadowJar {
     archiveBaseName.set("${project.archives_base_name}-${project.mc_range}")
     archiveVersion.set(project.version.toString())
-    destinationDirectory.set(layout.buildDirectory.dir("intermediates"))
+    destinationDirectory.set(layout.buildDirectory.dir("libs"))
 
     from(sourceSets.main.output)
     from(sourceSets.client.output)
@@ -195,8 +196,3 @@ tasks.named("assemble") {
 dependsOn(shadowJar)
 }
 
-tasks.named("remapJar") {
-    dependsOn(shadowJar)
-    inputFile.set(shadowJar.archiveFile)
-    archiveBaseName.set("${project.archives_base_name}-${project.mc_range}")
-}
