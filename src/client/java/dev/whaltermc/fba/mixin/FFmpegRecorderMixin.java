@@ -1,3 +1,5 @@
+// Copyright (c) 2026 WhalterMC. All Rights Reserved.
+
 package dev.whaltermc.fba.mixin;
 
 import com.llamalad7.mixinextras.injector.wrapoperation.Operation;
