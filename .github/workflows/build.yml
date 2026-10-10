@@ -79,6 +79,11 @@ jobs:
     strategy:
       matrix:
         branch: [1.21, 26.x, main]
+    # One updater per rolling tag at a time: concurrent runs otherwise
+    # delete/upload the same asset simultaneously and GitHub 404s.
+    concurrency:
+      group: dev-release-${{ matrix.branch }}
+      cancel-in-progress: false
     steps:
       - name: Download jar for ${{ matrix.branch }}
         uses: actions/download-artifact@v4
