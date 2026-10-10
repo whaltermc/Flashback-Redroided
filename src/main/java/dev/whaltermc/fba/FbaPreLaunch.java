@@ -6,6 +6,8 @@ import net.fabricmc.loader.api.entrypoint.PreLaunchEntrypoint;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import dev.whaltermc.fba.utils.FileActionsPatch;
+
 import java.lang.invoke.MethodHandles;
 import java.lang.reflect.Field;
 import java.lang.reflect.InvocationHandler;
@@ -20,6 +22,15 @@ public class FbaPreLaunch implements PreLaunchEntrypoint {
     @Override
     public void onPreLaunch() {
         NativeLoader.init();
+
+        try {
+            FileActionsPatch.select();
+        } catch (Throwable t) {
+            LOGGER.warn(
+                    "FBA file actions could not be selected, continuing without them",
+                    t
+            );
+        }
 
         try {
             installTransformer();

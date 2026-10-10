@@ -3,6 +3,8 @@
 package dev.whaltermc.fba.mixin;
 
 import com.moulberry.flashback.Flashback;
+import dev.whaltermc.fba.utils.FileActionsBridge;
+import dev.whaltermc.fba.utils.FileActionsPatch;
 import net.minecraft.client.Minecraft;
 import org.lwjgl.sdl.SDLDialog;
 import org.lwjgl.sdl.SDL_DialogFileFilter;
@@ -10,6 +12,9 @@ import org.lwjgl.sdl.SDLError;
 import org.lwjgl.system.MemoryUtil;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Overwrite;
+import org.spongepowered.asm.mixin.injection.At;
+import org.spongepowered.asm.mixin.injection.Inject;
+import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 
 import java.io.File;
 import java.nio.ByteBuffer;
@@ -65,6 +70,9 @@ public class FileDialogMixin {
             String filterDescription,
             String... filters
     ) {
+        if (FileActionsPatch.selected()) {
+            return FileActionsBridge.save(defaultName, filters);
+        }
         if (com.moulberry.flashback.utils.AsyncFileDialogs.hasDialog()) {
             return CompletableFuture.completedFuture(null);
         }
@@ -106,6 +114,9 @@ public class FileDialogMixin {
     public static CompletableFuture<String> openFolderDialog(
             String defaultPath
     ) {
+        if (FileActionsPatch.selected()) {
+            return FileActionsBridge.folder();
+        }
         if (com.moulberry.flashback.utils.AsyncFileDialogs.hasDialog()) {
             return CompletableFuture.completedFuture(null);
         }
@@ -120,5 +131,22 @@ public class FileDialogMixin {
         return CompletableFuture.completedFuture(
                 fallback.getAbsolutePath()
         );
+    }
+
+    @Inject(
+            method = "openFileDialog(Ljava/lang/String;Ljava/lang/String;[Ljava/lang/String;)Ljava/util/concurrent/CompletableFuture;",
+            at = @At("HEAD"),
+            cancellable = true,
+            remap = false
+    )
+    private static void flashbackRedroided$openFileDialog(
+            String defaultPath,
+            String filterDescription,
+            String[] filters,
+            CallbackInfoReturnable<CompletableFuture<String>> cir
+    ) {
+        if (FileActionsPatch.selected()) {
+            cir.setReturnValue(FileActionsBridge.open(filters));
+        }
     }
 }
