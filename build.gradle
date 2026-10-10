@@ -15,7 +15,7 @@ versionNumber = project.mod_version
 versionType = "release"
 gameVersions = [project.minecraft_version]
 loaders = ["fabric"]
-changelog = System.getenv("MODRINTH_CHANGELOG") ?: "See GitHub releases for changelog: https://github.com/whaltermc/FBA-Flashback-Android/releases"
+changelog = System.getenv("MODRINTH_CHANGELOG") ?: "See GitHub releases for changelog: https://github.com/whaltermc/Flashback-Redroided/releases"
 uploadFile = tasks.named("shadowJar")
 }
 
