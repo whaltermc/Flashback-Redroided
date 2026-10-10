@@ -22,7 +22,7 @@ public final class NativeLoader {
     private static final String RES_DIR = "lib/arm64-v8a/";
 
     private static final String IMGUI_RES =
-            "com/moulberry/imgui-natives/libimgui-moulberry90-java64.so";
+            "io/imgui/java/native-bin/libimgui-moulberry90-java64.so";
     private static final String IMGUI_LIB =
             "libimgui-moulberry90-java64.so";
 
