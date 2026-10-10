@@ -4,12 +4,29 @@ Android compatibility patches for [Flashback](https://modrinth.com/mod/flashback
 
 Flashback Redroided is a small addon that patches parts of Flashback that don't work properly on Android Minecraft launchers.
 
+### Branches
+
+| Branch | Minecraft | Jar |
+| --- | --- | --- |
+| `1.21` | 1.21 – 1.21.11 | `fba-1.21-1.21.11-<version>.jar` |
+| `26.x` | 26.1 – 26.2 | `fba-26.1-26.2-<version>.jar` |
+| `main` | 26.3 | `fba-26.3-<version>-all.jar` |
+
+Pick the jar that matches your Minecraft version.
+
+### Downloads
+
+- Stable releases: [GitHub Releases](https://github.com/whaltermc/Flashback-Redroided/releases) (published from `v*` tags).
+- Dev builds: rolling prereleases `dev-1.21`, `dev-26.x` and `dev-main`, updated on every push.
+
+Both are direct `.jar` downloads — no need to unzip anything.
+
 ### Installation
 
 1. Install Fabric for Minecraft.
 2. Install Fabric API.
 3. Install the original [Flashback](https://modrinth.com/project/4das1Fjq) mod.
-4. Download Flashback Redroided.
+4. Download Flashback Redroided (see Downloads above).
 5. Put both ".jar" files in your "mods" folder.
 6. Start Minecraft using your Android launcher.
 
@@ -67,6 +84,16 @@ If something doesn't work, open an issue and include:
 - Launcher
 - Renderer
 - Crash log / "latest.log"
+
+### Building
+
+Requires JDK 25 or newer (Fabric Loom 1.18 needs it to run Gradle):
+
+```
+./gradlew build
+```
+
+The finished jar is in `build/libs/`.
 
 ## License
 
