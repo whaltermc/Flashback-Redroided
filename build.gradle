@@ -59,7 +59,7 @@ shadow files("ffmpeg/javacpp-android-arm64.jar")
 shadow files("ffmpeg/ffmpeg.jar")
 shadow files("ffmpeg/ffmpeg-android-arm64-gpl.jar")
 
-shadow files("deps/imgui-binding-1.92.jar")
+shadow files("deps/imgui-binding-1.90.0.jar")
 shadow files("deps/imgui-java-natives-android.jar")
 
 }
