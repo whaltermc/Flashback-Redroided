@@ -14,153 +14,188 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
-import java.util.stream.Stream;
 
 /**
- * Folder-based replacement for desktop file dialogs: two fixed folders and no UI.
- * Import picks a matching file out of {@code import/}; export reserves a
- * never-overwritten path inside {@code export/}.
+ * Folder-based substitute for desktop file dialogs.
+ *
+ * <p>Imports resolve to a file inside {@code import/}; exports reserve a
+ * fresh, never-overwritten path inside {@code export/}. There is no UI at
+ * all: the two folders are the interface.
  */
 final class FileActions {
-    private static final int MAX_NAME_BYTES = 200;
-    private final Path importDir;
-    private final Path exportDir;
+    /** Cap on file-name length so exports stay within filesystem limits. */
+    static final int MAX_NAME_BYTES = 200;
+
+    private final Path inboxDir;
+    private final Path outboxDir;
 
     FileActions(Path root) {
-        this.importDir = root.toAbsolutePath().normalize().resolve("import");
-        this.exportDir = root.toAbsolutePath().normalize().resolve("export");
+        Path base = root.toAbsolutePath().normalize();
+        this.inboxDir = base.resolve("import");
+        this.outboxDir = base.resolve("export");
     }
 
-    Path importDir() { return importDir; }
-    Path exportDir() { return exportDir; }
+    Path inbox() { return inboxDir; }
+    Path outbox() { return outboxDir; }
 
     void createFolders() throws IOException {
-        Files.createDirectories(importDir);
-        Files.createDirectories(exportDir);
+        Files.createDirectories(inboxDir);
+        Files.createDirectories(outboxDir);
     }
 
-    /** Splits filters like "mp4", ".png", "*.replay" or "mp4,mov" into lowercase bare extensions. */
+    /**
+     * Turns dialog filters into plain lowercase extensions. {@code "mp4"},
+     * {@code ".png"}, {@code "*.replay"} and {@code "mp4,mov"} are all
+     * accepted, and comma/space/semicolon separated lists are split apart.
+     */
     static List<String> normalizeExtensions(String... raw) {
-        var result = new LinkedHashSet<String>();
-        if (raw == null) return List.of();
-        for (String entry : raw) {
-            if (entry == null) continue;
-            for (String part : entry.split("[,;\\s]+")) {
-                String ext = part.strip();
-                while (ext.startsWith("*")) ext = ext.substring(1);
-                while (ext.startsWith(".")) ext = ext.substring(1);
-                ext = ext.toLowerCase(Locale.ROOT);
-                if (!ext.isEmpty()) result.add(ext);
+        var cleaned = new LinkedHashSet<String>();
+        if (raw != null) {
+            for (String group : raw) {
+                if (group == null) continue;
+                for (String token : group.split("[,;\\s]+")) {
+                    String ext = stripMarkers(token.strip()).toLowerCase(Locale.ROOT);
+                    if (!ext.isEmpty()) cleaned.add(ext);
+                }
             }
         }
-        return List.copyOf(result);
+        return List.copyOf(cleaned);
     }
 
-    /** True when the name ends with one of the extensions. An empty list matches every name. */
+    private static String stripMarkers(String token) {
+        int start = 0;
+        while (start < token.length() && (token.charAt(start) == '*' || token.charAt(start) == '.')) start++;
+        return token.substring(start);
+    }
+
+    /**
+     * Whether a file name carries one of the extensions. An empty list
+     * accepts everything; a bare {@code ".ext"} with no stem never matches.
+     */
     static boolean hasExtension(String fileName, List<String> extensions) {
         if (extensions.isEmpty()) return true;
-        String lower = fileName.toLowerCase(Locale.ROOT);
+        String name = fileName.toLowerCase(Locale.ROOT);
         for (String ext : extensions) {
-            if (lower.length() > ext.length() + 1 && lower.endsWith("." + ext)) return true;
+            String dotted = "." + ext;
+            if (name.endsWith(dotted) && name.length() > dotted.length()) return true;
         }
         return false;
     }
 
-    /** Newest acceptable file in the import folder. */
+    /** Newest acceptable file in the import folder, if any. */
     Optional<Path> newestImport(List<String> extensions) throws IOException {
-        return newest(extensions, Map.of());
+        return findNewest(extensions, Map.of());
     }
 
-    /** Snapshot of the import folder as name to "modifiedMillis:size" for every acceptable file. */
+    /**
+     * Captures the import folder as file name to {@code "modifiedMillis:size"},
+     * so later polls can tell new or replaced files apart from untouched ones.
+     */
     Map<String, String> importSnapshot(List<String> extensions) throws IOException {
-        var result = new HashMap<String, String>();
-        if (!Files.isDirectory(importDir)) return result;
-        try (Stream<Path> files = Files.list(importDir)) {
-            for (Path path : (Iterable<Path>) files::iterator) {
-                String name = path.getFileName().toString();
-                if (acceptable(path, name, extensions)) result.put(name, stamp(path));
+        var snap = new HashMap<String, String>();
+        if (!Files.isDirectory(inboxDir)) return snap;
+        try (var listed = Files.list(inboxDir)) {
+            for (Path path : listed.toList()) {
+                String name = fileNameOf(path);
+                if (isCandidate(path, name, extensions)) snap.put(name, fingerprint(path));
             }
         }
-        return result;
+        return snap;
     }
 
-    /** Newest acceptable file that is new or changed (time or size) since the snapshot. */
+    /** Newest acceptable file that is new or changed since the given snapshot. */
     Optional<Path> newestChanged(List<String> extensions, Map<String, String> before) throws IOException {
-        return newest(extensions, before);
+        return findNewest(extensions, before);
     }
 
-    private static boolean acceptable(Path path, String name, List<String> extensions) {
-        return !name.startsWith(".") && hasExtension(name, extensions)
-                && Files.isRegularFile(path) && Files.isReadable(path);
+    private static String fileNameOf(Path path) {
+        return path.getFileName().toString();
     }
 
-    private static String stamp(Path path) throws IOException {
+    private static boolean isCandidate(Path path, String name, List<String> extensions) {
+        if (name.startsWith(".")) return false;
+        if (!hasExtension(name, extensions)) return false;
+        return Files.isRegularFile(path) && Files.isReadable(path);
+    }
+
+    private static String fingerprint(Path path) throws IOException {
         return Files.getLastModifiedTime(path).toMillis() + ":" + Files.size(path);
     }
 
-    private Optional<Path> newest(List<String> extensions, Map<String, String> unchanged) throws IOException {
-        if (!Files.isDirectory(importDir)) return Optional.empty();
+    private Optional<Path> findNewest(List<String> extensions, Map<String, String> unchanged) throws IOException {
+        if (!Files.isDirectory(inboxDir)) return Optional.empty();
         Path best = null;
-        FileTime bestTime = null;
-        try (Stream<Path> files = Files.list(importDir)) {
-            for (Path path : (Iterable<Path>) files::iterator) {
-                String name = path.getFileName().toString();
-                if (!acceptable(path, name, extensions)) continue;
-                if (stamp(path).equals(unchanged.get(name))) continue;
-                FileTime time = Files.getLastModifiedTime(path);
-                int order = best == null ? 1 : time.compareTo(bestTime);
-                if (order == 0) order = name.compareTo(best.getFileName().toString());
-                if (order > 0) { best = path; bestTime = time; }
+        FileTime bestModified = null;
+        String bestName = null;
+        try (var listed = Files.list(inboxDir)) {
+            for (Path path : listed.toList()) {
+                String name = fileNameOf(path);
+                if (!isCandidate(path, name, extensions)) continue;
+                if (fingerprint(path).equals(unchanged.get(name))) continue;
+                FileTime modified = Files.getLastModifiedTime(path);
+                if (best == null || modified.compareTo(bestModified) > 0
+                        || (modified.compareTo(bestModified) == 0 && name.compareTo(bestName) > 0)) {
+                    best = path;
+                    bestModified = modified;
+                    bestName = name;
+                }
             }
         }
         return Optional.ofNullable(best);
     }
 
-    /** Keeps one path segment and drops reserved characters, leading dots, trailing dots/spaces and over-long names. */
+    /**
+     * Reduces a requested name to a single safe path segment: directory parts,
+     * control characters, reserved symbols, leading dots and trailing
+     * dots/spaces are removed, and the result is capped at 200 UTF-8 bytes
+     * without splitting a surrogate pair.
+     */
     static String sanitizeName(String requested) {
         String name = requested == null ? "" : requested;
-        int slash = Math.max(name.lastIndexOf('/'), name.lastIndexOf('\\'));
-        if (slash >= 0) name = name.substring(slash + 1);
-        var out = new StringBuilder();
+        int cut = Math.max(name.lastIndexOf('/'), name.lastIndexOf('\\'));
+        if (cut >= 0) name = name.substring(cut + 1);
+        var kept = new StringBuilder(name.length());
         for (int i = 0; i < name.length(); i++) {
             char c = name.charAt(i);
-            if (c < 0x20 || c == 0x7f || "<>:\"|?*".indexOf(c) >= 0) continue;
-            out.append(c);
+            if (c < 0x20 || c == 0x7f) continue;
+            if (c == '<' || c == '>' || c == ':' || c == '"' || c == '|' || c == '?' || c == '*') continue;
+            kept.append(c);
         }
-        String cleaned = out.toString().strip();
-        while (cleaned.startsWith(".")) cleaned = cleaned.substring(1).stripLeading();
-        while (cleaned.endsWith(".") || cleaned.endsWith(" ")) cleaned = cleaned.substring(0, cleaned.length() - 1);
-        while (cleaned.getBytes(StandardCharsets.UTF_8).length > MAX_NAME_BYTES) {
-            cleaned = cleaned.substring(0, cleaned.length() - 1);
+        String safe = kept.toString().strip();
+        while (safe.startsWith(".")) safe = safe.substring(1).stripLeading();
+        while (safe.endsWith(".") || safe.endsWith(" ")) safe = safe.substring(0, safe.length() - 1);
+        while (safe.getBytes(StandardCharsets.UTF_8).length > MAX_NAME_BYTES) {
+            safe = safe.substring(0, safe.length() - 1);
         }
-        if (!cleaned.isEmpty() && Character.isHighSurrogate(cleaned.charAt(cleaned.length() - 1))) {
-            cleaned = cleaned.substring(0, cleaned.length() - 1);
+        if (!safe.isEmpty() && Character.isHighSurrogate(safe.charAt(safe.length() - 1))) {
+            safe = safe.substring(0, safe.length() - 1);
         }
-        return cleaned;
+        return safe;
     }
 
-    /** Reserves a path in the export folder, appending " (n)" instead of overwriting: "a.mp4" becomes "a (1).mp4". */
+    /**
+     * Reserves a path in the export folder for a new file. Name collisions
+     * gain a counter instead of overwriting: {@code "clip.mp4"} becomes
+     * {@code "clip (1).mp4"}.
+     */
     Path allocateExport(String requestedName, List<String> extensions) throws IOException {
         String name = sanitizeName(requestedName);
         if (name.isEmpty()) name = "export";
-        if (!extensions.isEmpty() && !hasExtension(name, extensions)) name = name + "." + extensions.get(0);
-        Files.createDirectories(exportDir);
-        Path target = exportDir.resolve(name).normalize();
-        if (!exportDir.equals(target.getParent())) throw new IOException("Export name escaped the export folder");
-        if (Files.exists(target, LinkOption.NOFOLLOW_LINKS)) {
-            String suffix = suffixOf(name, extensions);
-            String stem = name.substring(0, name.length() - suffix.length());
-            target = null;
-            for (int i = 1; i < 10_000 && target == null; i++) {
-                Path candidate = exportDir.resolve(stem + " (" + i + ")" + suffix);
-                if (!Files.exists(candidate, LinkOption.NOFOLLOW_LINKS)) target = candidate;
-            }
-            if (target == null) throw new IOException("Too many exports named " + name);
+        if (!extensions.isEmpty() && !hasExtension(name, extensions)) name += "." + extensions.get(0);
+        Files.createDirectories(outboxDir);
+        Path target = outboxDir.resolve(name).normalize();
+        if (!outboxDir.equals(target.getParent())) throw new IOException("Export name escaped the export folder");
+        if (!Files.exists(target, LinkOption.NOFOLLOW_LINKS)) return target;
+        String suffix = extensionSuffix(name, extensions);
+        String stem = name.substring(0, name.length() - suffix.length());
+        for (int n = 1; n < 10_000; n++) {
+            Path free = outboxDir.resolve(stem + " (" + n + ")" + suffix);
+            if (!Files.exists(free, LinkOption.NOFOLLOW_LINKS)) return free;
         }
-        return target;
+        throw new IOException("Too many exports named " + name);
     }
 
-    private static String suffixOf(String name, List<String> extensions) {
+    private static String extensionSuffix(String name, List<String> extensions) {
         String lower = name.toLowerCase(Locale.ROOT);
         for (String ext : extensions) {
             if (lower.endsWith("." + ext)) return name.substring(name.length() - ext.length() - 1);

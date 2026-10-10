@@ -17,69 +17,76 @@ import java.util.concurrent.TimeUnit;
 import java.util.function.Supplier;
 
 /**
- * Entry points for the {@code AsyncFileDialogs} hook. Futures complete on daemon
- * threads, like Flashback's own dialog thread, with a path on success and null
- * for a cancelled dialog.
+ * Backs Flashback's file dialogs with folders instead of native UI. Every
+ * call returns a future: a path on success, null when the dialog counts as
+ * cancelled. Work runs on daemon threads, mirroring Flashback's own dialog
+ * thread.
  *
- * <p>Import has no system picker to return to: the import folder is the hand-over
- * point. The Files app is opened on it and the call completes once a new file
- * lands there.
+ * <p>Import has no picker to return to, so the import folder doubles as the
+ * drop point: the Files app is opened on it and the call completes once a
+ * fresh file settles there.
  *
  * <p>Tuning flags:
  * <ul>
  *   <li>{@code -Dfba.fileDir=/abs/path} pins the import/export root.</li>
- *   <li>{@code -Dfba.fileActions=false} disables the hook entirely.</li>
- *   <li>{@code -Dfba.importMode=newest} returns the newest file instead of waiting.</li>
+ *   <li>{@code -Dfba.fileActions=false} switches the whole hook off.</li>
+ *   <li>{@code -Dfba.importMode=newest} picks the newest file instead of waiting.</li>
  *   <li>{@code -Dfba.importWaitSeconds=N} caps the folder watch (default 300).</li>
- *   <li>{@code -Dfba.picker=launcher} asks the launcher's picker first (default).</li>
+ *   <li>{@code -Dfba.picker=launcher} asks the launcher picker first (default).</li>
  * </ul>
  */
 public final class FileActionsBridge {
-    private static final ExecutorService EXECUTOR = Executors.newSingleThreadExecutor(task -> {
-        Thread thread = new Thread(task, "FbaFileActions");
-        thread.setDaemon(true);
-        return thread;
+    private static final ExecutorService JOBS = Executors.newSingleThreadExecutor(task -> {
+        Thread worker = new Thread(task, "FbaFileActions");
+        worker.setDaemon(true);
+        return worker;
     });
-    private static final String DEFAULT_SHARED_ROOT = "/storage/emulated/0/Download/FlashbackAndroid";
-    private static final String EXTERNAL_STORAGE = "/storage/emulated/0/";
-    private static final String DOCUMENTS = "content://com.android.externalstorage.documents/";
-    private static final long DEFAULT_WAIT_SECONDS = 300;
-    private static final long POLL_MILLIS = 500;
-    private static volatile FileActions actions;
-    private static final Object WATCH_LOCK = new Object();
-    private static Thread watcher;
-    private static CompletableFuture<String> watching;
+
+    /** Shared-storage home used when the app can write there; keeps exports visible in file managers. */
+    private static final String SHARED_ROOT = "/storage/emulated/0/Download/FlashbackAndroid";
+    private static final String SHARED_PREFIX = "/storage/emulated/0/";
+    private static final String DOCUMENTS_BASE = "content://com.android.externalstorage.documents/";
+    private static final long WAIT_SECONDS_DEFAULT = 300;
+    private static final long SETTLE_POLL_MILLIS = 500;
+
+    private static volatile FileActions files;
+    private static final Object IMPORT_GUARD = new Object();
+    private static Thread importThread;
+    private static CompletableFuture<String> importFuture;
 
     private FileActionsBridge() {}
 
-    /** Picks the import/export root: the {@code -Dfba.fileDir} override, else shared storage when writable, else the given root. */
-    static FileActions configure(Path requestedRoot) throws IOException {
-        Path root = requestedRoot;
+    /**
+     * Chooses the import/export root: the {@code -Dfba.fileDir} override when
+     * set, otherwise shared storage when it is writable, otherwise the given
+     * fallback. Creates both folders.
+     */
+    static FileActions configure(Path fallbackRoot) throws IOException {
+        Path root = fallbackRoot;
         String override = System.getProperty("fba.fileDir");
         if (override == null || override.isBlank()) {
-            Path shared = sharedRootIfUsable(Path.of(DEFAULT_SHARED_ROOT));
+            Path shared = sharedRootIfUsable(Path.of(SHARED_ROOT));
             if (shared != null) {
                 root = shared;
             } else {
-                System.out.println("[FBA Files] SHARED_FOLDER_UNAVAILABLE using " + root
-                        + " (the Files app may not be able to open it; set -Dfba.fileDir to a folder it can)");
+                System.out.println("[FBA Files] Shared folder unavailable, using " + root
+                        + " (the Files app may not reach it; pass -Dfba.fileDir=/path/to/a/visible/folder)");
             }
         }
-        var configured = new FileActions(root);
-        configured.createFolders();
-        actions = configured;
-        System.out.println("[FBA Files] FOLDERS import=" + configured.importDir() + " export=" + configured.exportDir());
-        return configured;
+        var ready = new FileActions(root);
+        ready.createFolders();
+        files = ready;
+        System.out.println("[FBA Files] Using folders: import=" + ready.inbox() + " export=" + ready.outbox());
+        return ready;
     }
 
-    /** Returns the shared root when the Files app can browse it and this process can write to it. */
+    /** Returns the shared root when the Files app can show it and this process can write into it. */
     static Path sharedRootIfUsable(Path shared) {
         try {
-            if (!Files.isDirectory(shared.getParent().getParent())) return null;
-            Path importDir = shared.resolve("import");
-            Files.createDirectories(importDir);
+            if (shared.getParent() == null || !Files.isDirectory(shared.getParent().getParent())) return null;
+            Files.createDirectories(shared.resolve("import"));
             Files.createDirectories(shared.resolve("export"));
-            Path probe = Files.createTempFile(importDir, ".probe", ".tmp");
+            Path probe = Files.createTempFile(shared.resolve("import"), ".probe", ".tmp");
             Files.deleteIfExists(probe);
             return shared;
         } catch (IOException | RuntimeException e) {
@@ -87,34 +94,34 @@ public final class FileActionsBridge {
         }
     }
 
-    /** Stands in for {@code openFileDialog}: waits for a matching file in the import folder. */
+    /** Stands in for {@code openFileDialog}: resolves to a matching file from the import folder. */
     public static CompletableFuture<String> open(String[] extensions) {
-        var current = actions;
+        var current = files;
         if (current == null) {
             System.err.println("[FBA Files] NOT_CONFIGURED");
             return CompletableFuture.completedFuture(null);
         }
         var accepted = FileActions.normalizeExtensions(extensions);
-        // Snapshot at click time so a file copied right afterwards still counts as new.
-        Map<String, String> before;
+        // Frozen at click time so a file dropped right afterwards still reads as new.
+        final Map<String, String> snapshot;
         try {
-            before = current.importSnapshot(accepted);
+            snapshot = current.importSnapshot(accepted);
         } catch (IOException e) {
-            before = Map.of();
+            System.err.println("[FBA Files] IMPORT_FAILED " + e);
+            return CompletableFuture.completedFuture(null);
         }
-        final Map<String, String> snapshot = before;
         var future = new CompletableFuture<String>();
-        synchronized (WATCH_LOCK) {
-            if (watching != null) {
-                watching.complete(null);
-                if (watcher != null) watcher.interrupt();
+        synchronized (IMPORT_GUARD) {
+            if (importFuture != null) {
+                importFuture.complete(null);
+                if (importThread != null) importThread.interrupt();
             }
-            watching = future;
+            importFuture = future;
             Thread thread = new Thread(() -> {
                 try {
-                    future.complete(importFlow(current, accepted, snapshot));
+                    future.complete(resolveImport(current, accepted, snapshot));
                 } catch (InterruptedException e) {
-                    // Superseded by a newer import click.
+                    // Superseded by a newer import request.
                     future.complete(null);
                 } catch (Throwable t) {
                     t.printStackTrace();
@@ -122,79 +129,104 @@ public final class FileActionsBridge {
                 }
             }, "FbaImportWatch");
             thread.setDaemon(true);
-            watcher = thread;
+            importThread = thread;
             thread.start();
         }
         return future;
     }
 
-    private static String importFlow(FileActions current, List<String> accepted, Map<String, String> before) throws IOException, InterruptedException {
-        boolean newestMode = "newest".equalsIgnoreCase(System.getProperty("fba.importMode", "folder"));
-        long waitSeconds = Long.getLong("fba.importWaitSeconds", DEFAULT_WAIT_SECONDS);
-        if (newestMode || waitSeconds <= 0) {
-            var file = current.newestImport(accepted);
-            if (file.isEmpty()) {
-                System.out.println("[FBA Files] IMPORT_EMPTY: no " + describe(accepted) + " in " + current.importDir());
-                return null;
-            }
-            System.out.println("[FBA Files] IMPORT " + file.get());
-            return file.get().toString();
+    private static String resolveImport(FileActions current, List<String> accepted, Map<String, String> before)
+            throws IOException, InterruptedException {
+        boolean newestOnly = "newest".equalsIgnoreCase(System.getProperty("fba.importMode", "folder"));
+        long waitSeconds = Long.getLong("fba.importWaitSeconds", WAIT_SECONDS_DEFAULT);
+        if (newestOnly || waitSeconds <= 0) {
+            return newestNow(current, accepted);
         }
         if ("launcher".equalsIgnoreCase(System.getProperty("fba.picker", "launcher"))) {
             long timeout = Long.getLong("fba.pickerTimeoutSeconds", 900);
-            var result = LauncherPicker.pick(LauncherPicker.baseDir(), "", "", accepted, timeout);
-            switch (result.status()) {
+            var answer = LauncherPicker.pick(LauncherPicker.baseDir(), "", "", accepted, timeout);
+            switch (answer.status()) {
                 case "ok" -> {
-                    if (!Files.isRegularFile(Path.of(result.path()))) {
-                        System.out.println("[FBA Files] IMPORT_PATH_NOT_READABLE " + result.path());
+                    if (!Files.isRegularFile(Path.of(answer.path()))) {
+                        System.out.println("[FBA Files] Picker path is not readable: " + answer.path());
                     }
-                    System.out.println("[FBA Files] IMPORT " + result.path());
-                    return result.path();
+                    System.out.println("[FBA Files] IMPORT " + answer.path());
+                    return answer.path();
                 }
                 case "cancel" -> {
-                    System.out.println("[FBA Files] IMPORT_CANCELLED " + result.message());
+                    System.out.println("[FBA Files] Import cancelled: " + answer.message());
                     return null;
                 }
                 case "timeout" -> {
-                    System.out.println("[FBA Files] IMPORT_TIMEOUT " + result.message());
+                    System.out.println("[FBA Files] Picker timed out: " + answer.message());
                     return null;
                 }
-                default -> System.out.println("[FBA Files] PICKER_UNAVAILABLE " + result.message()
-                        + " - falling back to the Files app and the import folder");
+                default -> System.out.println("[FBA Files] No launcher picker (" + answer.message()
+                        + "); watching the import folder instead");
             }
         }
-        openFilesApp(current.importDir());
-        System.out.println("[FBA Files] IMPORT_WAITING for a new " + describe(accepted) + " in " + current.importDir()
-                + " (up to " + waitSeconds + "s)");
+        return watchForDrop(current, accepted, before, waitSeconds);
+    }
+
+    private static String newestNow(FileActions current, List<String> accepted) throws IOException {
+        var file = current.newestImport(accepted);
+        if (file.isEmpty()) {
+            System.out.println("[FBA Files] Import folder has no " + labelFor(accepted) + ": " + current.inbox());
+            return null;
+        }
+        System.out.println("[FBA Files] IMPORT " + file.get());
+        return file.get().toString();
+    }
+
+    private static String watchForDrop(FileActions current, List<String> accepted, Map<String, String> baseline, long waitSeconds)
+            throws InterruptedException {
+        showInFilesApp(current.inbox());
+        System.out.println("[FBA Files] Waiting up to " + waitSeconds + "s for a new " + labelFor(accepted)
+                + " in " + current.inbox());
         long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(waitSeconds);
-        Path candidate = null;
-        String candidateStamp = null;
+        Path settling = null;
+        String settlingStamp = null;
         while (System.nanoTime() < deadline) {
-            Thread.sleep(POLL_MILLIS);
-            var changed = current.newestChanged(accepted, before);
-            if (changed.isEmpty()) { candidate = null; continue; }
-            Path path = changed.get();
-            String stamp = Files.getLastModifiedTime(path).toMillis() + ":" + Files.size(path);
-            // Accept once the file stops growing between two polls so half-copied files are never read.
-            if (path.equals(candidate) && stamp.equals(candidateStamp) && Files.size(path) > 0) {
-                System.out.println("[FBA Files] IMPORT " + path);
-                return path.toString();
+            Thread.sleep(SETTLE_POLL_MILLIS);
+            Path changed;
+            try {
+                changed = current.newestChanged(accepted, baseline).orElse(null);
+            } catch (IOException e) {
+                continue;
             }
-            candidate = path;
-            candidateStamp = stamp;
+            if (changed == null) {
+                settling = null;
+                continue;
+            }
+            String stamp;
+            long size;
+            try {
+                stamp = Files.getLastModifiedTime(changed).toMillis() + ":" + Files.size(changed);
+                size = Files.size(changed);
+            } catch (IOException e) {
+                continue;
+            }
+            // Only accept a file that stopped growing between two polls.
+            if (changed.equals(settling) && stamp.equals(settlingStamp) && size > 0) {
+                System.out.println("[FBA Files] IMPORT " + changed);
+                return changed.toString();
+            }
+            settling = changed;
+            settlingStamp = stamp;
         }
-        System.out.println("[FBA Files] IMPORT_TIMEOUT: nothing new appeared in " + current.importDir());
+        System.out.println("[FBA Files] Timed out with nothing new in " + current.inbox());
         return null;
     }
 
-    private static String describe(List<String> accepted) {
+    private static String labelFor(List<String> accepted) {
         return accepted.isEmpty() ? "file" : "." + String.join(", .", accepted) + " file";
     }
 
     /** Stands in for {@code saveFileDialog}: reserves a never-overwritten path in the export folder. */
     public static CompletableFuture<String> save(String defaultName, String[] extensions) {
         return submit(() -> {
-            var current = actions;
+            var current = files;
+            if (current == null) return null;
             try {
                 Path target = current.allocateExport(defaultName, FileActions.normalizeExtensions(extensions));
                 System.out.println("[FBA Files] EXPORT " + target);
@@ -209,11 +241,11 @@ public final class FileActionsBridge {
     /** Stands in for {@code openFolderDialog}: the export folder, created on demand. */
     public static CompletableFuture<String> folder() {
         return submit(() -> {
-            var current = actions;
+            var current = files;
             if (current == null) return null;
             try {
-                Files.createDirectories(current.exportDir());
-                return current.exportDir().toString();
+                Files.createDirectories(current.outbox());
+                return current.outbox().toString();
             } catch (IOException e) {
                 System.err.println("[FBA Files] FOLDER_FAILED " + e);
                 return null;
@@ -223,13 +255,13 @@ public final class FileActionsBridge {
 
     /** Runs work on the file-actions thread; completes with null when the hook was never configured. */
     private static CompletableFuture<String> submit(Supplier<String> work) {
-        if (actions == null) {
+        if (files == null) {
             System.err.println("[FBA Files] NOT_CONFIGURED");
             return CompletableFuture.completedFuture(null);
         }
         var future = new CompletableFuture<String>();
         try {
-            EXECUTOR.execute(() -> {
+            JOBS.execute(() -> {
                 try {
                     future.complete(work.get());
                 } catch (Throwable t) {
@@ -245,41 +277,51 @@ public final class FileActionsBridge {
 
     // ---- Opening the Android Files app (best effort; the launcher may restrict this) ----
 
-    /** DocumentsUI URI showing this folder, or null when it lives outside primary shared storage. */
-    static String folderUri(Path dir) {
+    /** DocumentsUI link showing this folder, or null when it sits outside primary shared storage. */
+    static String documentsUri(Path dir) {
         String path = dir.toAbsolutePath().normalize().toString().replace('\\', '/');
-        if (path.startsWith("/sdcard/")) path = EXTERNAL_STORAGE + path.substring("/sdcard/".length());
-        if (!path.startsWith(EXTERNAL_STORAGE)) return null;
-        String relative = path.substring(EXTERNAL_STORAGE.length());
+        if (path.startsWith("/sdcard/")) path = SHARED_PREFIX + path.substring("/sdcard/".length());
+        if (!path.startsWith(SHARED_PREFIX)) return null;
+        String relative = path.substring(SHARED_PREFIX.length());
         if (relative.isEmpty() || relative.equals("Android") || relative.startsWith("Android/")) return null;
-        return DOCUMENTS + "document/" + URLEncoder.encode("primary:" + relative, StandardCharsets.UTF_8).replace("+", "%20");
+        return DOCUMENTS_BASE + "document/" + URLEncoder.encode("primary:" + relative, StandardCharsets.UTF_8).replace("+", "%20");
     }
 
-    private static void openFilesApp(Path folder) {
-        String uri = folderUri(folder);
-        List<List<String>> attempts = new ArrayList<>();
-        if (uri != null) attempts.add(List.of("-a", "android.intent.action.VIEW", "-d", uri, "-t", "vnd.android.document/directory"));
-        attempts.add(List.of("-a", "android.provider.action.BROWSE", "-d", DOCUMENTS + "root/primary"));
+    /** Keeps the old entry point for callers that kept the previous name. */
+    static String folderUri(Path dir) {
+        return documentsUri(dir);
+    }
+
+    private static void showInFilesApp(Path folder) {
+        String uri = documentsUri(folder);
+        var attempts = new ArrayList<List<String>>();
+        if (uri != null) {
+            attempts.add(List.of("-a", "android.intent.action.VIEW", "-d", uri, "-t", "vnd.android.document/directory"));
+        }
+        attempts.add(List.of("-a", "android.provider.action.BROWSE", "-d", DOCUMENTS_BASE + "root/primary"));
+        var runners = List.of(
+                List.of("/system/bin/am", "start"),
+                List.of("/system/bin/cmd", "activity", "start-activity"));
         String lastError = "no Android activity manager found";
         for (List<String> attempt : attempts) {
-            for (List<String> launcher : List.of(List.of("/system/bin/am", "start"),
-                    List.of("/system/bin/cmd", "activity", "start-activity"))) {
-                if (!Files.isExecutable(Path.of(launcher.get(0)))) continue;
-                var command = new ArrayList<>(launcher);
+            for (List<String> runner : runners) {
+                if (!Files.isExecutable(Path.of(runner.get(0)))) continue;
+                var command = new ArrayList<>(runner);
                 command.addAll(attempt);
-                String result = run(command);
-                if (result == null) {
-                    System.out.println("[FBA Files] FILES_APP_OPENED " + String.join(" ", attempt));
+                String failure = runCommand(command);
+                if (failure == null) {
+                    System.out.println("[FBA Files] Files app opened (" + String.join(" ", attempt) + ")");
                     return;
                 }
-                lastError = result;
+                lastError = failure;
             }
         }
-        System.out.println("[FBA Files] FILES_APP_FAILED " + lastError + ". Open " + folder + " yourself and copy the file there.");
+        System.out.println("[FBA Files] Could not open the Files app (" + lastError
+                + "). Open " + folder + " yourself and copy the file there.");
     }
 
     /** Runs an activity-manager command with the game process env scrubbed; null on success, else a reason. */
-    private static String run(List<String> command) {
+    private static String runCommand(List<String> command) {
         try {
             var builder = new ProcessBuilder(command).redirectErrorStream(true);
             for (String key : List.of("LD_LIBRARY_PATH", "LD_PRELOAD", "JAVA_HOME", "JAVA_TOOL_OPTIONS",
