@@ -58,8 +58,9 @@ jobs:
       - name: Download built jars
         uses: actions/download-artifact@v4
         with:
-          name: flashback-redroided-${{ matrix.branch }}-${{ github.sha }}
+          pattern: flashback-redroided-*-${{ github.sha }}
           path: dist
+          merge-multiple: true
 
       - name: Publish GitHub release
         uses: softprops/action-gh-release@v2
