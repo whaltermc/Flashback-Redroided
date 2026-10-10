@@ -54,6 +54,13 @@ implementation "net.fabricmc.fabric-api:fabric-api:${fabric_api_version}"
 
 compileOnly "maven.modrinth:4das1Fjq:${flashback_version}"
 
+// On the compile/runtime classpath AND embedded: MC 26.3 no longer ships
+// lwjgl-tinyfd, and the dialog chain must never break startup when it is
+// absent. Natives are deliberately not bundled (upstream has no Android
+// backend); the tinyfd attempt then cascades at call time instead of
+// failing to load.
+shadow "org.lwjgl:lwjgl-tinyfd:3.4.1"
+
 shadow files("ffmpeg/javacpp.jar")
 shadow files("ffmpeg/javacpp-android-arm64.jar")
 shadow files("ffmpeg/ffmpeg.jar")
