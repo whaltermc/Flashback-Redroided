@@ -27,8 +27,9 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * and Flashback leaves the PBO bound to {@code GL_PIXEL_PACK_BUFFER}.
  *
  * <p>{@code glGetBufferSubData} sidesteps all of it: no mapping, no pending-error
- * sensitivity. Both calls need the buffer unbound first, so we unbind up front --
- * which is what Flashback does immediately afterwards anyway.
+ * sensitivity. It reads from the buffer bound to the target, so the PBO must
+ * stay bound for the duration of the call -- Flashback unbinds it itself
+ * immediately after the copy.
  */
 @Mixin(targets = "com.moulberry.flashback.exporting.SaveableFramebuffer", remap = false, priority = 1000)
 public abstract class FramebufferMixin {
@@ -39,6 +40,17 @@ public abstract class FramebufferMixin {
 
     /** True when the current call returned a plain readback buffer, not a map. */
     private static boolean usedReadback;
+
+    /**
+     * Reused readback buffer. A full-HD frame is ~8 MB of native memory, so
+     * allocating a fresh buffer per frame leaks native memory for the whole
+     * export (nothing ever frees the copies). The buffer is only ever used
+     * sequentially -- Flashback copies it out synchronously via
+     * {@code memCopy} before {@code finishDownload} returns -- so one cached
+     * buffer, reallocated only when the frame size changes, is safe.
+     */
+    private static ByteBuffer cachedCopy;
+    private static int cachedSize;
 
     @WrapOperation(
             method = "finishDownload",
@@ -74,33 +86,57 @@ public abstract class FramebufferMixin {
             LOGGER.warn("pbo readback: glGetBufferParameteriv failed", t);
         }
 
-        if (size <= 0 || size > Integer.MAX_VALUE) {
+        if (size <= 0) {
             LOGGER.warn("pbo readback: no usable buffer size ({}), deferring to Flashback",
                     size);
             return original.call(target, access);
         }
 
-        // GLES requires the buffer to be unbound for both of the calls below.
-        GL30C.glBindBuffer(target, 0);
-
-        ByteBuffer copy = null;
+        // The PBO is still bound here (Flashback bound it just before mapping).
+        // Both glGetBufferSubData and glMapBufferRange operate on the buffer
+        // bound to the target -- unbinding first makes them fail with
+        // INVALID_OPERATION and hands the encoder uninitialized memory, which
+        // is exactly the black/flickering-video symptom. Flashback unbinds the
+        // PBO itself right after the copy, so leave the binding alone.
+        // Drain stale errors first so the post-read glGetError check below is
+        // meaningful (stale errors are what broke glMapBuffer originally).
         try {
-            copy = MemoryUtil.memAlloc(size);
-            GL15C.glGetBufferSubData(target, 0, copy);
-            usedReadback = true;
-            return copy;
-        } catch (Throwable t) {
-            if (copy != null) {
-                try {
-                    MemoryUtil.memFree(copy);
-                } catch (Throwable ignored) {
-                    // best effort
-                }
+            for (int i = 0; i < 16 && GL30C.glGetError() != GL30C.GL_NO_ERROR; i++) {
+                // draining
             }
+        } catch (Throwable ignored) {
+            // best effort
+        }
+
+        try {
+            if (cachedCopy == null || cachedSize != size) {
+                ByteBuffer fresh = MemoryUtil.memAlloc(size);
+                if (cachedCopy != null) {
+                    try {
+                        MemoryUtil.memFree(cachedCopy);
+                    } catch (Throwable ignored) {
+                        // best effort
+                    }
+                }
+                cachedCopy = fresh;
+                cachedSize = size;
+            }
+            ByteBuffer copy = cachedCopy;
+            copy.clear();
+            GL15C.glGetBufferSubData(target, 0, copy);
+            int err = GL30C.glGetError();
+            if (err != GL30C.GL_NO_ERROR) {
+                LOGGER.warn("pbo readback: glGetBufferSubData GL error 0x{} (size={}), trying map fallback",
+                        Integer.toHexString(err), size);
+            } else {
+                usedReadback = true;
+                return copy;
+            }
+        } catch (Throwable t) {
             LOGGER.warn("pbo readback: glGetBufferSubData failed (size={})", size, t);
         }
 
-        // Second choice: range map, now that the buffer is unbound.
+        // Second choice: range map (also reads the bound buffer, no unbind).
         try {
             ByteBuffer mapped = GL30C.glMapBufferRange(target, 0, size, GL30C.GL_MAP_READ_BIT);
             if (mapped != null) {
