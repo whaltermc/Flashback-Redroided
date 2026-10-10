@@ -11,6 +11,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
+import org.spongepowered.asm.mixin.injection.Inject;
+import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
 import java.nio.ByteBuffer;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -37,6 +39,8 @@ public abstract class FramebufferMixin {
     private static final Logger LOGGER = LoggerFactory.getLogger("flashback_android");
 
     private static final AtomicBoolean ENTRY_LOGGED = new AtomicBoolean();
+    private static final AtomicBoolean DOWNLOAD_ENTRY_LOGGED = new AtomicBoolean();
+    private static final AtomicBoolean READPIXELS_WRAP_LOGGED = new AtomicBoolean();
 
     /** True when the current call returned a plain readback buffer, not a map. */
     private static boolean usedReadback;
@@ -194,6 +198,18 @@ public abstract class FramebufferMixin {
     }
 
     /**
+     * One-time marker proving this mixin reaches {@code startDownload} at all.
+     * If the log shows the finishDownload marker but never this one, the
+     * startDownload injections below are silently unmatched (require=0).
+     */
+    @Inject(method = "startDownload", at = @At("HEAD"), remap = false, require = 0)
+    private void flashbackRedroided$markDownloadEntry(CallbackInfo ci) {
+        if (DOWNLOAD_ENTRY_LOGGED.compareAndSet(false, true)) {
+            LOGGER.warn("pbo download: startDownload entered");
+        }
+    }
+
+    /**
      * Watches Flashback's {@code glReadPixels} into the PBO in
      * {@code startDownload}. If the driver rejects the PACK_BUFFER read, the
      * PBO keeps whatever it had (zeros) and every exported frame is black no
@@ -214,6 +230,9 @@ public abstract class FramebufferMixin {
             int x, int y, int width, int height, int format, int type, long pixels,
             Operation<Void> original
     ) {
+        if (READPIXELS_WRAP_LOGGED.compareAndSet(false, true)) {
+            LOGGER.warn("pbo download: readPixels wrapper active");
+        }
         try {
             for (int i = 0; i < 16 && GL30C.glGetError() != GL30C.GL_NO_ERROR; i++) {
                 // drain stale errors so the post-call check is meaningful
