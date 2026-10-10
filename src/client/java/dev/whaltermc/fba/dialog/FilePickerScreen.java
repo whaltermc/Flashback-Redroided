@@ -249,7 +249,12 @@ public final class FilePickerScreen extends Screen {
 
     @Override
     public void render(GuiGraphics graphics, int mouseX, int mouseY, float delta) {
-        renderBackground(graphics, mouseX, mouseY, delta);
+        // Not renderBackground(): that blurs whenever a level is loaded, and
+        // GuiRenderState.applyBlur throws "Can only blur once per frame" when
+        // something else already blurred this frame (other mods, or a second
+        // render pass). renderTransparentBackground is a plain dim gradient and
+        // cannot trip that guard.
+        renderTransparentBackground(graphics);
 
         graphics.drawCenteredString(this.font, this.title, this.width / 2, 12, 0xFFFFFF);
         graphics.drawCenteredString(this.font, shorten(dir.getAbsolutePath()),
