@@ -36,14 +36,13 @@ public class FbaPreLaunch implements PreLaunchEntrypoint {
             installTransformer();
 
             LOGGER.info(
-                    "Installed Flashback ImGui binding interceptor " +
-                    "(imgui.moulberry90 -> imgui.moulberry92)"
+                    "Installed Flashback GLFW safety patcher"
             );
 
         } catch (Throwable t) {
             LOGGER.error(
-                    "Failed to install ImGui binding interceptor - " +
-                    "Flashback UI will likely crash on Android",
+                    "Failed to install class patcher - " +
+                    "Flashback may crash on Android",
                     t
             );
         }

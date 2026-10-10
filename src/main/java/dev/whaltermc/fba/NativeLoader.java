@@ -21,6 +21,11 @@ public final class NativeLoader {
     private static final String MOD_ID = "flashback_android";
     private static final String RES_DIR = "lib/arm64-v8a/";
 
+    private static final String IMGUI_RES =
+            "com/moulberry/imgui-natives/libimgui-moulberry90-java64.so";
+    private static final String IMGUI_LIB =
+            "libimgui-moulberry90-java64.so";
+
     private static final String[] LIBS = {
             "libjnijavacpp.so",
             "libavutil.so", "libjniavutil.so",
@@ -76,6 +81,20 @@ public final class NativeLoader {
 
             LOGGER.info("Loaded {} FFmpeg/JavaCPP natives from {} ({})", loaded, dir, source);
 
+            Path imguiDir = Path.of(System.getProperty("java.io.tmpdir"))
+                    .resolve("flashback-android-natives");
+            Files.createDirectories(imguiDir);
+
+            if (extractSingle(mod, IMGUI_RES, imguiDir.resolve(IMGUI_LIB))) {
+                System.setProperty(
+                        "imgui.library.path",
+                        imguiDir.toAbsolutePath().toString()
+                );
+                LOGGER.info("ImGui native dir set to {}", imguiDir);
+            } else {
+                LOGGER.warn("Bundled ImGui native missing from jar: {}", IMGUI_RES);
+            }
+
         } catch (Throwable t) {
             LOGGER.error("Failed to load bundled FFmpeg natives", t);
         }
@@ -115,6 +134,26 @@ public final class NativeLoader {
                     Files.copy(in, dst, StandardCopyOption.REPLACE_EXISTING);
                 }
             }
+        }
+    }
+
+    private static boolean extractSingle(
+            ModContainer mod, String resource, Path dst
+    ) {
+        try {
+            Optional<Path> src = mod.findPath(resource);
+            if (src.isEmpty()) {
+                return false;
+            }
+            if (!Files.exists(dst) || Files.size(dst) != Files.size(src.get())) {
+                try (InputStream in = Files.newInputStream(src.get())) {
+                    Files.copy(in, dst, StandardCopyOption.REPLACE_EXISTING);
+                }
+            }
+            return true;
+        } catch (Throwable t) {
+            LOGGER.warn("Failed to extract {}", resource, t);
+            return false;
         }
     }
 }

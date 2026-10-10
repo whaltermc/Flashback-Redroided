@@ -16,7 +16,7 @@ public class FbaInitializer implements ModInitializer {
     @Override
     public void onInitialize() {
         LOGGER.info(
-                "Flashback Redroided loaded - ImGui remap + Android patches"
+                "Flashback Redroided loaded - Android patches"
         );
     }
 }

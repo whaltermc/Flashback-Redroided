@@ -9,17 +9,12 @@ import org.objectweb.asm.Label;
 import org.objectweb.asm.MethodVisitor;
 import org.objectweb.asm.Opcodes;
 import org.objectweb.asm.Type;
-import org.objectweb.asm.commons.ClassRemapper;
-import org.objectweb.asm.commons.Remapper;
 
 import java.nio.charset.StandardCharsets;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
 public final class ClassPatcher {
-
-    private static final String FROM = "imgui/moulberry90/";
-    private static final String TO = "imgui/moulberry92/";
 
     private static final String GLFW = "org/lwjgl/glfw/GLFW";
     private static final String SAFETY = "com/whaltermc/GlfwSafety";
@@ -31,10 +26,7 @@ public final class ClassPatcher {
             return classBytes;
         }
 
-        boolean hasImGui = contains(classBytes, FROM);
-        boolean hasGlfw = contains(classBytes, GLFW);
-
-        if (!hasImGui && !hasGlfw) {
+        if (!contains(classBytes, GLFW)) {
             return classBytes;
         }
 
@@ -42,47 +34,6 @@ public final class ClassPatcher {
         ClassWriter writer = new ClassWriter(reader, 0);
 
         ClassVisitor chain = new GlfwGuard(writer);
-
-        if (hasImGui) {
-            Remapper remapper = new Remapper() {
-
-                @Override
-                public String map(String internalName) {
-                    if (internalName == null) {
-                        return null;
-                    }
-
-                    if (internalName.startsWith(FROM)) {
-                        return TO + internalName.substring(FROM.length());
-                    }
-
-                    return internalName;
-                }
-
-                @Override
-                public Object mapValue(Object value) {
-                    if (value instanceof String s) {
-                        if (s.contains("imgui.moulberry90")
-                                || s.contains("imgui/moulberry90")) {
-
-                            return s
-                                    .replace(
-                                            "imgui.moulberry90",
-                                            "imgui.moulberry92"
-                                    )
-                                    .replace(
-                                            "imgui/moulberry90",
-                                            "imgui/moulberry92"
-                                    );
-                        }
-                    }
-
-                    return super.mapValue(value);
-                }
-            };
-
-            chain = new ClassRemapper(chain, remapper);
-        }
 
         reader.accept(chain, 0);
 
