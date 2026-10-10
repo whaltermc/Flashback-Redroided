@@ -14,7 +14,7 @@ import java.nio.ByteBuffer;
 import java.util.concurrent.CompletableFuture;
 
 @Mixin(targets = "com.moulberry.flashback.utils.AsyncFileDialogs")
-public class AsyncFileDialogsMixin {
+public class FileDialogMixin {
 
     private static File flashbackRedroided$getDefaultExportDir() {
         File dir = new File(

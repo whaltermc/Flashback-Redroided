@@ -22,7 +22,7 @@ public final class ClassPatcher {
     private static final String GLFW = "org/lwjgl/glfw/GLFW";
     private static final String SAFETY = "com/whaltermc/GlfwSafety";
 
-    private FlashbackTransformer() {}
+    private ClassPatcher() {}
 
     public static byte[] transform(byte[] classBytes) {
         if (classBytes == null || classBytes.length == 0) {

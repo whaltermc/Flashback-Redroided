@@ -17,7 +17,7 @@ public class FbaPreLaunch implements PreLaunchEntrypoint {
 
     @Override
     public void onPreLaunch() {
-        NativeBootstrap.init();
+        NativeLoader.init();
 
         try {
             installTransformer();
@@ -136,7 +136,7 @@ public class FbaPreLaunch implements PreLaunchEntrypoint {
                         && bytes != null
                         && bytes.length > 0) {
 
-                    return FlashbackTransformer.transform(bytes);
+                    return ClassPatcher.transform(bytes);
                 }
 
                 return result;

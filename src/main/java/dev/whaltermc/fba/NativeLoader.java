@@ -30,7 +30,7 @@ public final class NativeLoader {
 
     private static boolean done;
 
-    private NativeBootstrap() {}
+    private NativeLoader() {}
 
     public static synchronized void init() {
         if (done) return;

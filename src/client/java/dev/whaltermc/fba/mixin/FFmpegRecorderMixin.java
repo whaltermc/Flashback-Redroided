@@ -21,7 +21,7 @@ import static org.bytedeco.ffmpeg.global.avutil.AV_PIX_FMT_YUV420P;
 import static org.bytedeco.ffmpeg.global.avutil.av_dict_set;
 
 @Mixin(FlashbackFFmpegFrameRecorder.class)
-public abstract class FlashbackFFmpegFrameRecorderMixin {
+public abstract class FFmpegRecorderMixin {
 
     @Shadow
     private AVCodec video_codec;

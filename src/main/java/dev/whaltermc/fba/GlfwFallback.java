@@ -11,7 +11,7 @@ public final class GlfwFallback {
     private static final Logger LOGGER = LoggerFactory.getLogger("flashback_android/glfw");
     private static final Set<String> REPORTED = ConcurrentHashMap.newKeySet();
 
-    private GlfwSafety() {}
+    private GlfwFallback() {}
 
     public static void missing(String function, Throwable cause) {
         if (REPORTED.add(function)) {
