@@ -135,6 +135,20 @@ shadowJar {
     exclude("org/bytedeco/javacpp/chrono/**")
     exclude("META-INF/maven/**")
     exclude("META-INF/native-image/**")
+    // Dead CLI executables from the FFmpeg Android jar. Nothing loads or
+    // executes them: JavaCPP's Loader extraction is disabled on Android
+    // (NativeLoader sets loadlibraries=false and System.loads the .so
+    // files directly), and no code references these paths. Dropping them
+    // also keeps executable binaries out of the distributed mod JAR.
+    exclude("lib/arm64-v8a/ffmpeg")
+    exclude("lib/arm64-v8a/ffprobe")
+    // Defensive: this mod only supports Android ARM64 (see NativeLoader).
+    // Never ship other-ABI natives or multi-release module-info stubs even
+    // if a future dependency jar starts bundling them.
+    exclude("lib/armeabi-v7a/**")
+    exclude("lib/x86/**")
+    exclude("lib/x86_64/**")
+    exclude("META-INF/versions/**")
 
     manifest {
         attributes("Class-Path": "")
