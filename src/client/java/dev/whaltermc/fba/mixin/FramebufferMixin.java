@@ -254,6 +254,7 @@ public abstract class FramebufferMixin {
     }
 
     private static final int GL_READ_FRAMEBUFFER_BINDING = 0x8CAA;
+    private static final int GL_PIXEL_PACK_BUFFER_BINDING = 0x88ED;
 
     /** Reused scratch buffer for the direct-read probe below. */
     private static ByteBuffer probeCopy;
@@ -288,11 +289,18 @@ public abstract class FramebufferMixin {
                 probeCopy = fresh;
                 probeSize = size;
             }
-            // Client-memory reads need no pack buffer bound.
+            // Client-memory reads need no pack buffer bound -- but Flashback's
+            // real PBO is bound to this target right now and must come back
+            // bound when we're done, or its own glReadPixels write never lands
+            // (this was the actual cause of the all-zero PBO readback: this
+            // probe used to leave GL_PIXEL_PACK_BUFFER bound to 0 for the rest
+            // of the frame instead of restoring it).
+            int realPbo = GL30C.glGetInteger(GL_PIXEL_PACK_BUFFER_BINDING);
             GL30C.glBindBuffer(GL30C.GL_PIXEL_PACK_BUFFER, 0);
             probeCopy.clear();
             GL30C.glReadPixels(0, 0, width, height, format, type, probeCopy);
             int err = GL30C.glGetError();
+            GL30C.glBindBuffer(GL30C.GL_PIXEL_PACK_BUFFER, realPbo);
             if (err != GL30C.GL_NO_ERROR) {
                 if (probeFrames == 0) {
                     LOGGER.warn("pbo probe: direct glReadPixels failed, GL error 0x{} (readBinding={})",
