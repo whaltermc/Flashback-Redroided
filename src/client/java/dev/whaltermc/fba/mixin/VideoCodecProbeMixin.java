@@ -86,10 +86,10 @@ public abstract class VideoCodecProbeMixin {
             require = 0
     )
     private static int fba$probeWithPixFmtFallbacks(
-            Operation<Integer> original,
             AVCodecContext ctx,
             AVCodec codec,
-            AVDictionary options
+            AVDictionary options,
+            Operation<Integer> original
     ) {
         if (!isMediaCodecEncoder(codec)) {
             return original.call(ctx, codec, options);
@@ -184,8 +184,8 @@ public abstract class VideoCodecProbeMixin {
             require = 1
     )
     private static int fba$suppressAvcodecClose(
-            Operation<Integer> original,
-            AVCodecContext codecContext
+            AVCodecContext codecContext,
+            Operation<Integer> original
     ) {
         return 0;
     }
