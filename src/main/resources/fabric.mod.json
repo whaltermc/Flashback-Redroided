@@ -11,6 +11,8 @@
     "WhalterMC"
   ],
 
+  "license": "All-Rights-Reserved (mod's own code; bundled FFmpeg/JavaCPP/imgui-java remain under their own licenses, see NOTICE)",
+
   "contact": {
     "website": "https://whaltermc.vercel.app/flashback-redroided",
     "sources": "https://github.com/whaltermc/Flashback-Redroided"

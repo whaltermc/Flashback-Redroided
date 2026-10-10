@@ -75,27 +75,90 @@ options.release = 21
 }
 
 jar {
-archiveBaseName.set(project.archives_base_name)
+    archiveBaseName.set(project.archives_base_name)
 
-from("LICENSE") {
-    rename { "${it}_flashback-redroided" }
-}
+    from("LICENSE") {
+        into "META-INF"
+        rename { "${it}_flashback-redroided" }
+    }
+
+    from("NOTICE") {
+        into "META-INF"
+    }
 
 }
 
 shadowJar {
-archiveBaseName.set("${project.archives_base_name}-1.21-1.21.11")
-archiveVersion.set(project.version.toString())
-destinationDirectory.set(layout.buildDirectory.dir("intermediates"))
+    archiveBaseName.set("${project.archives_base_name}-1.21-1.21.11")
+    archiveVersion.set(project.version.toString())
+    destinationDirectory.set(layout.buildDirectory.dir("intermediates"))
 
-from(sourceSets.main.output)
-from(sourceSets.client.output)
+    from(sourceSets.main.output)
+    from(sourceSets.client.output)
 
-configurations = [project.configurations.shadow]
+    from("LICENSE") {
+        into "META-INF"
+        rename { "${it}_flashback-redroided" }
+    }
 
-exclude("LICENSE")
-exclude("LICENSE.txt")
+    from("NOTICE") {
+        into "META-INF"
+    }
 
+    configurations = [project.configurations.shadow]
+
+    exclude("org/bytedeco/javacpp/tools/Builder*")
+    exclude("org/bytedeco/javacpp/tools/BuildMojo*")
+    exclude("org/bytedeco/javacpp/tools/CacheMojo*")
+    exclude("org/bytedeco/javacpp/tools/ClearMojo*")
+    exclude("org/bytedeco/javacpp/tools/ParseMojo*")
+    exclude("org/bytedeco/javacpp/tools/CommandExecutor*")
+    exclude("org/bytedeco/javacpp/tools/UserClassLoader*")
+    exclude("org/bytedeco/javacpp/tools/ClassScanner*")
+    exclude("org/bytedeco/javacpp/tools/ClassFilter*")
+    exclude("org/bytedeco/javacpp/chrono/**")
+    exclude("META-INF/maven/**")
+    exclude("META-INF/native-image/**")
+
+    manifest {
+        attributes("Class-Path": "")
+    }
+
+    doLast {
+        def f = archiveFile.get().asFile
+        def tmp = new File(f.parentFile, f.name + ".nomanifestpath")
+        f.withInputStream { zin ->
+            def zis = new java.util.zip.ZipInputStream(zin)
+            def zos = new java.util.zip.ZipOutputStream(tmp.newOutputStream())
+            def entry
+            def buf = new byte[8192]
+            int n
+            while ((entry = zis.nextEntry) != null) {
+                zos.putNextEntry(new java.util.zip.ZipEntry(entry.name).tap {
+                    time = entry.time
+                })
+                if (entry.name == "META-INF/MANIFEST.MF") {
+                    def baos = new ByteArrayOutputStream()
+                    while ((n = zis.read(buf)) != -1) {
+                        baos.write(buf, 0, n)
+                    }
+                    def text = baos.toString("UTF-8")
+                    text = text.replaceAll(/(?m)^Class-Path:[^\r\n]*(\r?\n[ \t][^\r\n]*)*\r?\n/, "")
+                    zos.write(text.getBytes("UTF-8"))
+                } else {
+                    while ((n = zis.read(buf)) != -1) {
+                        zos.write(buf, 0, n)
+                    }
+                }
+                zos.closeEntry()
+            }
+            zos.close()
+        }
+        if (!tmp.renameTo(f)) {
+            f.delete()
+            tmp.renameTo(f)
+        }
+    }
 }
 
 tasks.named("assemble") {
