@@ -169,6 +169,8 @@ public abstract class VideoCodecProbeMixin {
      * avcodec_free_context() handles all cleanup on FFmpeg 5+.
      * Swallowing this call prevents UnsatisfiedLinkError on devices
      * where the symbol no longer exists in the native library.
+     * require = 1: a future Flashback update moving this call must fail
+     * loudly at startup, never silently at the export screen.
      */
     @WrapOperation(
             method = "doesEncoderWork",
@@ -179,7 +181,7 @@ public abstract class VideoCodecProbeMixin {
                     remap = false
             ),
             remap = false,
-            require = 0
+            require = 1
     )
     private static int fba$suppressAvcodecClose(
             Operation<Integer> original,

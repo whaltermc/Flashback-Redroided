@@ -55,6 +55,10 @@ modImplementation "net.fabricmc.fabric-api:fabric-api:${fabric_api_version}"
 
 modCompileOnly "maven.modrinth:4das1Fjq:${flashback_version}"
 
+// Bundled via Jar-in-Jar: @WrapOperation injections are inert without it
+// (neither Fabric Loader nor Flashback ship MixinExtras).
+modImplementation(include("io.github.llamalad7:mixinextras-fabric:0.5.5"))
+
 shadow files("ffmpeg/javacpp.jar")
 shadow files("ffmpeg/javacpp-android-arm64.jar")
 shadow files("ffmpeg/ffmpeg.jar")
