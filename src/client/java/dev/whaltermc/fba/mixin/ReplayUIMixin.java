@@ -31,13 +31,21 @@ public abstract class ReplayUIMixin {
     private static boolean flashbackRedroided$dockingEnabled = false;
 
     /**
-     * Called once per frame just before Flashback renders its ImGui windows.
-     * We use HEAD so the dockspace host window is pushed before any other
-     * windows, which is the required ImGui ordering.
+     * Called once per frame right after Flashback starts its ImGui frame.
+     * Must run after ImGui.newFrame(): calling ImGui.begin() earlier fires
+     * the g.WithinFrameScope assertion, which aborts the game on Android
+     * builds with assertions enabled. Running here keeps the dockspace host
+     * window pushed before any other windows, which is the required ImGui
+     * ordering.
      */
     @Inject(
             method = "drawOverlayInternal",
-            at = @At("HEAD"),
+            at = @At(
+                    value = "INVOKE",
+                    target = "Lorg/imgui/moulberry90/ImGui;newFrame()V",
+                    shift = At.Shift.AFTER,
+                    remap = false
+            ),
             remap = false,
             require = 0
     )
