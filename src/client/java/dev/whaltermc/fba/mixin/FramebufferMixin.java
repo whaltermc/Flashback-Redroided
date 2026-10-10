@@ -25,9 +25,9 @@ public abstract class FramebufferMixin {
             require = 0
     )
     private ByteBuffer flashbackRedroided$mapPixelBufferRange(
-            Operation<ByteBuffer> original,
             int target,
             int access,
+            Operation<ByteBuffer> original,
             @Local(argsOnly = true, index = 0) int width,
             @Local(argsOnly = true, index = 1) int height
     ) {

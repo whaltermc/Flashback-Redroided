@@ -21,7 +21,7 @@ public abstract class CursorInputMixin {
             remap = false,
             require = 0
     )
-    private static void flashbackRedroided$setCursorMode(Operation<Void> original, long window, int mode, int value) {
+    private static void flashbackRedroided$setCursorMode(long window, int mode, int value, Operation<Void> original) {
         if (mode != org.lwjgl.glfw.GLFW.GLFW_CURSOR || !AndroidInput.isMobile()) {
             original.call(window, mode, value);
             if (mode == org.lwjgl.glfw.GLFW.GLFW_CURSOR) {
@@ -42,7 +42,7 @@ public abstract class CursorInputMixin {
             remap = false,
             require = 0
     )
-    private static void flashbackRedroided$setCursorPos(Operation<Void> original, long window, double x, double y) {
+    private static void flashbackRedroided$setCursorPos(long window, double x, double y, Operation<Void> original) {
         if (!AndroidInput.isMobile()) {
             original.call(window, x, y);
         } else {

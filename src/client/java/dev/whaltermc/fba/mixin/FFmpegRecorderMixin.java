@@ -98,55 +98,55 @@ public abstract class FFmpegRecorderMixin {
     }
 
     @WrapOperation(method = {"startUnsafe", "start", "setAudioChannels", "setAudioCodec", "getAudioChannels", "getAudioChannelLayout"}, at = @At(value = "INVOKE", target = "Lorg/bytedeco/ffmpeg/global/avutil;av_get_default_channel_layout(I)J", remap = false), remap = false, require = 0)
-    private long flashbackRedroided$defaultChannelLayout(Operation<Long> original, int nbChannels) {
+    private long flashbackRedroided$defaultChannelLayout(int nbChannels, Operation<Long> original) {
         return defaultMask(nbChannels);
     }
 
     @WrapOperation(method = {"startUnsafe", "start", "setAudioChannels", "setAudioCodec", "getAudioChannels", "getAudioChannelLayout"}, at = @At(value = "INVOKE", target = "Lorg/bytedeco/ffmpeg/avcodec/AVCodecContext;channels(I)Lorg/bytedeco/ffmpeg/avcodec/AVCodecContext;", remap = false), remap = false, require = 0)
-    private AVCodecContext flashbackRedroided$ctxChannelsSet(Operation<AVCodecContext> original, AVCodecContext ctx, int channels) {
+    private AVCodecContext flashbackRedroided$ctxChannelsSet(AVCodecContext ctx, int channels, Operation<AVCodecContext> original) {
         applyChLayout(ctx, channels);
         return ctx;
     }
 
     @WrapOperation(method = {"startUnsafe", "start", "setAudioChannels", "setAudioCodec", "getAudioChannels", "getAudioChannelLayout"}, at = @At(value = "INVOKE", target = "Lorg/bytedeco/ffmpeg/avcodec/AVCodecContext;channel_layout(J)Lorg/bytedeco/ffmpeg/avcodec/AVCodecContext;", remap = false), remap = false, require = 0)
-    private AVCodecContext flashbackRedroided$ctxChannelLayoutSet(Operation<AVCodecContext> original, AVCodecContext ctx, long mask) {
+    private AVCodecContext flashbackRedroided$ctxChannelLayoutSet(AVCodecContext ctx, long mask, Operation<AVCodecContext> original) {
         applyChLayoutMask(ctx, mask);
         return ctx;
     }
 
     @WrapOperation(method = {"startUnsafe", "start", "setAudioChannels", "setAudioCodec", "getAudioChannels", "getAudioChannelLayout"}, at = @At(value = "INVOKE", target = "Lorg/bytedeco/ffmpeg/avcodec/AVCodecContext;channels()I", remap = false), remap = false, require = 0)
-    private int flashbackRedroided$ctxChannelsGet(Operation<Integer> original, AVCodecContext ctx) {
+    private int flashbackRedroided$ctxChannelsGet(AVCodecContext ctx, Operation<Integer> original) {
         if (ctx == null || ctx.ch_layout() == null) return 0;
         return ctx.ch_layout().nb_channels();
     }
 
     @WrapOperation(method = {"startUnsafe", "start", "setAudioChannels", "setAudioCodec", "getAudioChannels", "getAudioChannelLayout"}, at = @At(value = "INVOKE", target = "Lorg/bytedeco/ffmpeg/avcodec/AVCodecContext;channel_layout()J", remap = false), remap = false, require = 0)
-    private long flashbackRedroided$ctxChannelLayoutGet(Operation<Long> original, AVCodecContext ctx) {
+    private long flashbackRedroided$ctxChannelLayoutGet(AVCodecContext ctx, Operation<Long> original) {
         int nb = 0;
         if (ctx != null && ctx.ch_layout() != null) nb = ctx.ch_layout().nb_channels();
         return defaultMask(nb);
     }
 
     @WrapOperation(method = {"record", "recordSamples", "recordUnsafe", "getFrameAudioChannels", "getFrameAudioChannelLayout"}, at = @At(value = "INVOKE", target = "Lorg/bytedeco/ffmpeg/avutil/AVFrame;channels(I)Lorg/bytedeco/ffmpeg/avutil/AVFrame;", remap = false), remap = false, require = 0)
-    private AVFrame flashbackRedroided$frameChannelsSet(Operation<AVFrame> original, AVFrame frame, int channels) {
+    private AVFrame flashbackRedroided$frameChannelsSet(AVFrame frame, int channels, Operation<AVFrame> original) {
         applyFrameChLayout(frame, channels);
         return frame;
     }
 
     @WrapOperation(method = {"record", "recordSamples", "recordUnsafe", "getFrameAudioChannels", "getFrameAudioChannelLayout"}, at = @At(value = "INVOKE", target = "Lorg/bytedeco/ffmpeg/avutil/AVFrame;channel_layout(J)Lorg/bytedeco/ffmpeg/avutil/AVFrame;", remap = false), remap = false, require = 0)
-    private AVFrame flashbackRedroided$frameChannelLayoutSet(Operation<AVFrame> original, AVFrame frame, long mask) {
+    private AVFrame flashbackRedroided$frameChannelLayoutSet(AVFrame frame, long mask, Operation<AVFrame> original) {
         applyFrameChLayoutMask(frame, mask);
         return frame;
     }
 
     @WrapOperation(method = {"record", "recordSamples", "recordUnsafe", "getFrameAudioChannels", "getFrameAudioChannelLayout"}, at = @At(value = "INVOKE", target = "Lorg/bytedeco/ffmpeg/avutil/AVFrame;channels()I", remap = false), remap = false, require = 0)
-    private int flashbackRedroided$frameChannelsGet(Operation<Integer> original, AVFrame frame) {
+    private int flashbackRedroided$frameChannelsGet(AVFrame frame, Operation<Integer> original) {
         if (frame == null || frame.ch_layout() == null) return 0;
         return frame.ch_layout().nb_channels();
     }
 
     @WrapOperation(method = {"record", "recordSamples", "recordUnsafe", "getFrameAudioChannels", "getFrameAudioChannelLayout"}, at = @At(value = "INVOKE", target = "Lorg/bytedeco/ffmpeg/avutil/AVFrame;channel_layout()J", remap = false), remap = false, require = 0)
-    private long flashbackRedroided$frameChannelLayoutGet(Operation<Long> original, AVFrame frame) {
+    private long flashbackRedroided$frameChannelLayoutGet(AVFrame frame, Operation<Long> original) {
         int nb = 0;
         if (frame != null && frame.ch_layout() != null) nb = frame.ch_layout().nb_channels();
         return defaultMask(nb);
@@ -154,11 +154,11 @@ public abstract class FFmpegRecorderMixin {
 
     @WrapOperation(method = {"startUnsafe", "start", "initAudioResampler", "createAudioResampler"}, at = @At(value = "INVOKE", target = "Lorg/bytedeco/ffmpeg/global/swresample;swr_alloc_set_opts(Lorg/bytedeco/ffmpeg/swresample/SwrContext;JIIJIIILorg/bytedeco/javacpp/Pointer;)Lorg/bytedeco/ffmpeg/swresample/SwrContext;", remap = false), remap = false, require = 0)
     private SwrContext flashbackRedroided$swrAllocSetOpts(
-            Operation<SwrContext> original,
             SwrContext s,
             long outChLayout, int outSampleFmt, int outSampleRate,
             long inChLayout,  int inSampleFmt,  int inSampleRate,
-            int logOffset, Pointer logCtx) {
+            int logOffset, Pointer logCtx,
+            Operation<SwrContext> original) {
 
         if (s == null || s.isNull()) s = new SwrContext();
 
@@ -177,13 +177,13 @@ public abstract class FFmpegRecorderMixin {
     }
 
     @WrapOperation(method = {"record", "recordSamples", "recordUnsafe", "isKeyFrame", "setKeyFrame"}, at = @At(value = "INVOKE", target = "Lorg/bytedeco/ffmpeg/avutil/AVFrame;key_frame()I", remap = false), remap = false, require = 0)
-    private int flashbackRedroided$getKeyFrame(Operation<Integer> original, AVFrame frame) {
+    private int flashbackRedroided$getKeyFrame(AVFrame frame, Operation<Integer> original) {
         if (frame == null) return 0;
         return (frame.flags() & AVFrame.AV_FRAME_FLAG_KEY) != 0 ? 1 : 0;
     }
 
     @WrapOperation(method = {"record", "recordSamples", "recordUnsafe", "isKeyFrame", "setKeyFrame"}, at = @At(value = "INVOKE", target = "Lorg/bytedeco/ffmpeg/avutil/AVFrame;key_frame(I)Lorg/bytedeco/ffmpeg/avutil/AVFrame;", remap = false), remap = false, require = 0)
-    private AVFrame flashbackRedroided$setKeyFrame(Operation<AVFrame> original, AVFrame frame, int key) {
+    private AVFrame flashbackRedroided$setKeyFrame(AVFrame frame, int key, Operation<AVFrame> original) {
         if (frame == null) return null;
         int flags = frame.flags();
         int keyFlag = AVFrame.AV_FRAME_FLAG_KEY;
@@ -207,10 +207,10 @@ public abstract class FFmpegRecorderMixin {
         require = 0
     )
     private int flashbackRedroided$alwaysNdkMediaCodec(
-            Operation<Integer> original,
             AVCodecContext ctx,
             AVCodec codec,
-            AVDictionary options
+            AVDictionary options,
+            Operation<Integer> original
     ) {
         try {
             if (codec != null && codec.name() != null && !codec.isNull()

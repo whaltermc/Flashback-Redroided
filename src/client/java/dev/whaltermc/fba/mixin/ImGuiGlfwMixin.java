@@ -53,7 +53,7 @@ public abstract class ImGuiGlfwMixin {
             remap = false,
             require = 0
     )
-    private void flashbackRedroided$setGrabCursorMode(Operation<Void> original, long window, int mode, int value) {
+    private void flashbackRedroided$setGrabCursorMode(long window, int mode, int value, Operation<Void> original) {
         if (mode != org.lwjgl.glfw.GLFW.GLFW_CURSOR || !AndroidInput.isMobile()) {
             original.call(window, mode, value);
             if (mode == org.lwjgl.glfw.GLFW.GLFW_CURSOR) {
@@ -74,7 +74,7 @@ public abstract class ImGuiGlfwMixin {
             remap = false,
             require = 0
     )
-    private void flashbackRedroided$setCursorModeIfChanged(Operation<Void> original, long window, int mode, int value) {
+    private void flashbackRedroided$setCursorModeIfChanged(long window, int mode, int value, Operation<Void> original) {
         if (mode != org.lwjgl.glfw.GLFW.GLFW_CURSOR || !AndroidInput.isMobile()) {
             original.call(window, mode, value);
             if (mode == org.lwjgl.glfw.GLFW.GLFW_CURSOR) {
@@ -95,7 +95,7 @@ public abstract class ImGuiGlfwMixin {
             remap = false,
             require = 0
     )
-    private void flashbackRedroided$setCursorPos(Operation<Void> original, long window, double x, double y) {
+    private void flashbackRedroided$setCursorPos(long window, double x, double y, Operation<Void> original) {
         if (!AndroidInput.isMobile()) {
             original.call(window, x, y);
         } else {
@@ -113,7 +113,7 @@ public abstract class ImGuiGlfwMixin {
             remap = false,
             require = 0
     )
-    private void flashbackRedroided$setCursorShape(Operation<Void> original, long window, long cursor) {
+    private void flashbackRedroided$setCursorShape(long window, long cursor, Operation<Void> original) {
         if (!AndroidInput.isMobile()) {
             original.call(window, cursor);
         } else {
