@@ -39,7 +39,7 @@ jobs:
         with:
           name: flashback-redroided-${{ matrix.branch }}-${{ github.sha }}
           path: |
-            build/libs/flashback-android-*-*.jar
+            build/libs/fba-*-*.jar
             !build/libs/*-sources.jar
           if-no-files-found: error
 
@@ -69,3 +69,28 @@ jobs:
         with:
           files: dist/*.jar
           generate_release_notes: true
+
+  dev-release:
+    if: github.ref_type == 'branch'
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    strategy:
+      matrix:
+        branch: [1.21, 26.x, main]
+    steps:
+      - name: Download jar for ${{ matrix.branch }}
+        uses: actions/download-artifact@v4
+        with:
+          name: flashback-redroided-${{ matrix.branch }}-${{ github.sha }}
+          path: dist
+
+      - name: Publish rolling dev release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: dev-${{ matrix.branch }}
+          name: Dev build (${{ matrix.branch }})
+          body: Latest dev build from ${{ matrix.branch }} @ ${{ github.sha }}
+          prerelease: true
+          files: dist/*.jar
