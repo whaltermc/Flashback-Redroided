@@ -4,7 +4,6 @@ package dev.whaltermc.fba.mixin;
 
 import com.llamalad7.mixinextras.injector.wrapoperation.Operation;
 import com.llamalad7.mixinextras.injector.wrapoperation.WrapOperation;
-import com.llamalad7.mixinextras.sugar.Local;
 import org.lwjgl.opengl.GL15C;
 import org.lwjgl.opengl.GL30C;
 import org.lwjgl.system.MemoryUtil;
@@ -14,6 +13,7 @@ import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.injection.At;
 
 import java.nio.ByteBuffer;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * Reads Flashback's pixel-pack PBO without mapping it.
@@ -29,14 +29,13 @@ import java.nio.ByteBuffer;
  * <p>{@code glGetBufferSubData} sidesteps all of it: no mapping, no pending-error
  * sensitivity. Both calls need the buffer unbound first, so we unbind up front --
  * which is what Flashback does immediately afterwards anyway.
- *
- * <p>Only if that fails do we try a range map, and only if that fails do we let
- * Flashback run its original call, so behaviour is never worse than before.
  */
 @Mixin(targets = "com.moulberry.flashback.exporting.SaveableFramebuffer", remap = false, priority = 1000)
 public abstract class FramebufferMixin {
 
     private static final Logger LOGGER = LoggerFactory.getLogger("flashback_android");
+
+    private static final AtomicBoolean ENTRY_LOGGED = new AtomicBoolean();
 
     /** True when the current call returned a plain readback buffer, not a map. */
     private static boolean usedReadback;
@@ -54,33 +53,30 @@ public abstract class FramebufferMixin {
     private ByteBuffer flashbackRedroided$readPixelBuffer(
             int target,
             int access,
-            Operation<ByteBuffer> original,
-            @Local(argsOnly = true, index = 0) int width,
-            @Local(argsOnly = true, index = 1) int height
+            Operation<ByteBuffer> original
     ) {
+        // Unconditional, once per session. Every previous attempt at this was
+        // guesswork because a non-matching injection and a failing handler both
+        // produce silence; this makes the two distinguishable immediately.
+        if (ENTRY_LOGGED.compareAndSet(false, true)) {
+            LOGGER.warn("pbo readback: handler entered, target={} access={}",
+                    target, access);
+        }
+
         usedReadback = false;
 
-        long want = (long) width * (long) height * 4L;
-        long size = want;
-
-        int allocated = 0;
+        int size = 0;
         try {
             int[] bufSize = new int[1];
             GL15C.glGetBufferParameteriv(target, GL15C.GL_BUFFER_SIZE, bufSize);
-            allocated = bufSize[0];
-        } catch (Throwable ignored) {
-            // Fall back to the computed size below.
-        }
-
-        // Never read past the real allocation: an over-long range is
-        // GL_INVALID_VALUE and the call returns nothing.
-        if (allocated > 0 && allocated < size) {
-            size = allocated;
+            size = bufSize[0];
+        } catch (Throwable t) {
+            LOGGER.warn("pbo readback: glGetBufferParameteriv failed", t);
         }
 
         if (size <= 0 || size > Integer.MAX_VALUE) {
-            LOGGER.warn("pbo readback: bad size {} ({}x{}, allocated {})",
-                    size, width, height, allocated);
+            LOGGER.warn("pbo readback: no usable buffer size ({}), deferring to Flashback",
+                    size);
             return original.call(target, access);
         }
 
@@ -89,7 +85,7 @@ public abstract class FramebufferMixin {
 
         ByteBuffer copy = null;
         try {
-            copy = MemoryUtil.memAlloc((int) size);
+            copy = MemoryUtil.memAlloc(size);
             GL15C.glGetBufferSubData(target, 0, copy);
             usedReadback = true;
             return copy;
@@ -101,7 +97,7 @@ public abstract class FramebufferMixin {
                     // best effort
                 }
             }
-            LOGGER.warn("pbo readback: glGetBufferSubData failed", t);
+            LOGGER.warn("pbo readback: glGetBufferSubData failed (size={})", size, t);
         }
 
         // Second choice: range map, now that the buffer is unbound.
@@ -110,19 +106,19 @@ public abstract class FramebufferMixin {
             if (mapped != null) {
                 return mapped;
             }
+            LOGGER.warn("pbo readback: glMapBufferRange returned null (size={})", size);
         } catch (Throwable t) {
-            LOGGER.warn("pbo readback: glMapBufferRange failed", t);
+            LOGGER.warn("pbo readback: glMapBufferRange failed (size={})", size, t);
         }
 
         // Last resort: Flashback's own behaviour, so we never make it worse.
-        LOGGER.warn("pbo readback: falling back to glMapBuffer ({}x{}, allocated {})",
-                width, height, allocated);
         return original.call(target, access);
     }
 
     /**
      * Flashback unmaps whatever it was handed. Nothing was mapped on the
-     * readback path, and unmapping an unmapped buffer is a GL error.
+     * readback path, and unmapping an unmapped buffer is itself a GL error,
+     * which would re-poison the frame and undo the fix on the next export.
      */
     @WrapOperation(
             method = "finishDownload",
