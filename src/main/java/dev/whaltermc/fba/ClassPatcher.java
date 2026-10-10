@@ -9,8 +9,6 @@ import org.objectweb.asm.Label;
 import org.objectweb.asm.MethodVisitor;
 import org.objectweb.asm.Opcodes;
 import org.objectweb.asm.Type;
-import org.objectweb.asm.commons.ClassRemapper;
-import org.objectweb.asm.commons.Remapper;
 
 import java.nio.charset.StandardCharsets;
 import java.util.LinkedHashMap;
@@ -18,11 +16,10 @@ import java.util.Map;
 
 public final class ClassPatcher {
 
-    private static final String FROM = "imgui/moulberry90/";
-    private static final String TO = "imgui/moulberry92/";
-
-    private static final String IMGUI = TO + "ImGui";
-    private static final String KEY_SHIM = "dev/whaltermc/fba/ImGuiKeyBridge";
+    private static final String GL_ARB_OLD =
+            "GL_ARB_separate_shader_objects : require";
+    private static final String GL_ARB_NEW =
+            "GL_ARB_separate_shader_objects : warn";
 
     private static final String GLFW = "org/lwjgl/glfw/GLFW";
     private static final String SAFETY = "dev/whaltermc/fba/GlfwFallback";
@@ -46,10 +43,10 @@ public final class ClassPatcher {
             return classBytes;
         }
 
-        boolean hasImGui = contains(classBytes, FROM);
         boolean hasGlfw = contains(classBytes, GLFW);
+        boolean hasGlArb = contains(classBytes, GL_ARB_OLD);
 
-        if (!hasImGui && !hasGlfw) {
+        if (!hasGlfw && !hasGlArb) {
             return classBytes;
         }
 
@@ -57,38 +54,14 @@ public final class ClassPatcher {
             ClassReader reader = new ClassReader(classBytes);
             ClassWriter writer = new ClassWriter(reader, 0);
 
-            ClassVisitor chain = new GlfwGuard(writer);
-            chain = new KeyRedirect(chain);
+            ClassVisitor chain = writer;
 
-            if (hasImGui) {
-                chain = new ClassRemapper(chain, new Remapper() {
-                    @Override
-                    public String map(String internalName) {
-                        if (internalName != null && internalName.startsWith(FROM)) {
-                            return TO + internalName.substring(FROM.length());
-                        }
-                        return internalName;
-                    }
+            if (hasGlArb) {
+                chain = new GlArbFix(chain);
+            }
 
-                    @Override
-                    public Object mapValue(Object value) {
-                        if (value instanceof String s) {
-                            String out = s;
-                            if (s.contains("imgui.moulberry90") || s.contains("imgui/moulberry90")) {
-                                out = out.replace("imgui.moulberry90", "imgui.moulberry92")
-                                        .replace("imgui/moulberry90", "imgui/moulberry92");
-                            }
-                            if (out.contains("GL_ARB_separate_shader_objects : require")) {
-                                out = out.replace("GL_ARB_separate_shader_objects : require",
-                                        "GL_ARB_separate_shader_objects : warn");
-                            }
-                            if (!out.equals(s)) {
-                                return out;
-                            }
-                        }
-                        return super.mapValue(value);
-                    }
-                });
+            if (hasGlfw) {
+                chain = new GlfwGuard(chain);
             }
 
             reader.accept(chain, 0);
@@ -99,9 +72,9 @@ public final class ClassPatcher {
         }
     }
 
-    private static final class KeyRedirect extends ClassVisitor {
+    private static final class GlArbFix extends ClassVisitor {
 
-        KeyRedirect(ClassVisitor next) {
+        GlArbFix(ClassVisitor next) {
             super(Opcodes.ASM9, next);
         }
 
@@ -113,22 +86,13 @@ public final class ClassPatcher {
 
             return new MethodVisitor(Opcodes.ASM9, mv) {
                 @Override
-                public void visitMethodInsn(int opcode, String owner, String mName,
-                                            String mDesc, boolean itf) {
-                    if (opcode == Opcodes.INVOKESTATIC && IMGUI.equals(owner) && isKeyCall(mName, mDesc)) {
-                        super.visitMethodInsn(Opcodes.INVOKESTATIC, KEY_SHIM, mName, mDesc, false);
+                public void visitLdcInsn(Object cst) {
+                    if (cst instanceof String s && s.contains(GL_ARB_OLD)) {
+                        super.visitLdcInsn(s.replace(GL_ARB_OLD, GL_ARB_NEW));
                         return;
                     }
-                    super.visitMethodInsn(opcode, owner, mName, mDesc, itf);
+                    super.visitLdcInsn(cst);
                 }
-            };
-        }
-
-        private static boolean isKeyCall(String name, String desc) {
-            return switch (name) {
-                case "isKeyDown", "isKeyReleased" -> desc.equals("(I)Z");
-                case "isKeyPressed" -> desc.equals("(I)Z") || desc.equals("(IZ)Z");
-                default -> false;
             };
         }
     }
