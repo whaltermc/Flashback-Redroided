@@ -164,10 +164,7 @@ public final class FlashbackTransformer {
                 @Override
                 public void visitMethodInsn(int opcode, String owner, String mName,
                                             String mDesc, boolean itf) {
-                    // Only guard the known mobile-fragile calls. Everything else
-                    // passes through untouched so other code paths never change.
-                    if (opcode == Opcodes.INVOKESTATIC && GLFW.equals(owner) && !itf
-                            && COMPAT_CALLS.contains(mName + mDesc)) {
+                    if (opcode == Opcodes.INVOKESTATIC && GLFW.equals(owner) && !itf) {
                         Stub stub = stubs.computeIfAbsent(mName + mDesc,
                                 k -> new Stub(mName, mDesc,
                                         "flashback$redroided$glfw$" + mName + "$" + stubs.size()));
@@ -201,6 +198,7 @@ public final class FlashbackTransformer {
             Label end = new Label();
             Label handler = new Label();
             mv.visitTryCatchBlock(start, end, handler, "java/lang/LinkageError");
+            mv.visitTryCatchBlock(start, end, handler, "java/lang/RuntimeException");
 
             mv.visitLabel(start);
             int slot = 0;
@@ -217,7 +215,7 @@ public final class FlashbackTransformer {
 
             mv.visitLabel(handler);
             mv.visitFrame(Opcodes.F_NEW, frameLocals.length, frameLocals,
-                    1, new Object[]{"java/lang/LinkageError"});
+                    1, new Object[]{"java/lang/Throwable"});
             mv.visitVarInsn(Opcodes.ASTORE, slot);
             mv.visitLdcInsn(stub.glfwName());
             mv.visitVarInsn(Opcodes.ALOAD, slot);
