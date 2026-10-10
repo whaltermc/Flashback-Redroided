@@ -10,4 +10,4 @@ pluginManagement {
 }
 
 // Should match your modid
-rootProject.name = 'flashback-redroided'
+rootProject.name = 'flashback-android'

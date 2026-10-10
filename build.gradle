@@ -15,7 +15,7 @@ versionNumber = project.mod_version
 versionType = "release"
 gameVersions = [project.minecraft_version]
 loaders = ["fabric"]
-changelog = System.getenv("MODRINTH_CHANGELOG") ?: "See GitHub releases for changelog: https://github.com/whaltermc/Flashback-Redroided/releases"
+changelog = System.getenv("MODRINTH_CHANGELOG") ?: "See GitHub releases for changelog: https://github.com/whaltermc/FBA-Flashback-Android/releases"
 uploadFile = tasks.named("shadowJar")
 }
 
@@ -39,7 +39,7 @@ loom {
 splitEnvironmentSourceSets()
 
 mods {
-    "flashback-redroided" {
+    "flashback_android" {
         sourceSet sourceSets.main
         sourceSet sourceSets.client
     }
@@ -90,7 +90,7 @@ archiveBaseName.set(project.archives_base_name)
 
 from("LICENSE") {
     into "META-INF"
-    rename { "${it}_flashback-redroided" }
+    rename { "${it}_flashback-android" }
 }
 
 from("NOTICE") {
@@ -109,7 +109,7 @@ from(sourceSets.client.output)
 
 from("LICENSE") {
     into "META-INF"
-    rename { "${it}_flashback-redroided" }
+    rename { "${it}_flashback-android" }
 }
 
 from("NOTICE") {

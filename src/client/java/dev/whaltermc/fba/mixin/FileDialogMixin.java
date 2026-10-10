@@ -1,4 +1,4 @@
-package com.whaltermc.mixin;
+package dev.whaltermc.fba.mixin;
 
 import com.moulberry.flashback.Flashback;
 import net.minecraft.client.Minecraft;

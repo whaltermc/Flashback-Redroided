@@ -1,4 +1,4 @@
-package com.whaltermc;
+package dev.whaltermc.fba;
 
 import net.fabricmc.loader.api.entrypoint.PreLaunchEntrypoint;
 import org.slf4j.Logger;
@@ -10,10 +10,10 @@ import java.lang.reflect.InvocationHandler;
 import java.lang.reflect.Method;
 import java.lang.reflect.Proxy;
 
-public class FlashbackPreLaunch implements PreLaunchEntrypoint {
+public class FbaPreLaunch implements PreLaunchEntrypoint {
 
     private static final Logger LOGGER =
-            LoggerFactory.getLogger("flashback-redroided");
+            LoggerFactory.getLogger("flashback_android");
 
     @Override
     public void onPreLaunch() {

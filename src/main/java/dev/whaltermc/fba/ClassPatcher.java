@@ -1,4 +1,4 @@
-package com.whaltermc;
+package dev.whaltermc.fba;
 
 import org.objectweb.asm.ClassReader;
 import org.objectweb.asm.ClassVisitor;
@@ -14,7 +14,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
-public final class FlashbackTransformer {
+public final class ClassPatcher {
 
     private static final String FROM = "imgui/moulberry90/";
     private static final String TO = "imgui/moulberry92/";

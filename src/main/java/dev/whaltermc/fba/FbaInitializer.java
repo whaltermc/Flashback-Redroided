@@ -1,12 +1,12 @@
-package com.whaltermc;
+package dev.whaltermc.fba;
 
 import net.fabricmc.api.ModInitializer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-public class FlashbackRedroided implements ModInitializer {
+public class FbaInitializer implements ModInitializer {
 
-    public static final String MOD_ID = "flashback-redroided";
+    public static final String MOD_ID = "flashback_android";
 
     public static final Logger LOGGER =
             LoggerFactory.getLogger(MOD_ID);

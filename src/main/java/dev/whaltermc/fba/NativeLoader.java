@@ -1,4 +1,4 @@
-package com.whaltermc;
+package dev.whaltermc.fba;
 
 import net.fabricmc.loader.api.FabricLoader;
 import net.fabricmc.loader.api.ModContainer;
@@ -11,12 +11,12 @@ import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.util.Optional;
 
-public final class NativeBootstrap {
+public final class NativeLoader {
 
     private static final Logger LOGGER =
-            LoggerFactory.getLogger("flashback-redroided/natives");
+            LoggerFactory.getLogger("flashback_android/natives");
 
-    private static final String MOD_ID = "flashback-redroided";
+    private static final String MOD_ID = "flashback_android";
     private static final String RES_DIR = "lib/arm64-v8a/";
 
     private static final String[] LIBS = {
@@ -46,7 +46,7 @@ public final class NativeBootstrap {
             String source = "launcher-extracted";
             if (dir == null) {
                 dir = Path.of(System.getProperty("java.io.tmpdir"))
-                        .resolve("flashback-redroided-natives");
+                        .resolve("flashback-android-natives");
                 Files.createDirectories(dir);
                 extract(mod, dir);
                 source = "extracted from jar";

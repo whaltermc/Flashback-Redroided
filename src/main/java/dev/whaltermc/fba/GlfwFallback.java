@@ -1,4 +1,4 @@
-package com.whaltermc;
+package dev.whaltermc.fba;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -6,9 +6,9 @@ import org.slf4j.LoggerFactory;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
-public final class GlfwSafety {
+public final class GlfwFallback {
 
-    private static final Logger LOGGER = LoggerFactory.getLogger("flashback-redroided/glfw");
+    private static final Logger LOGGER = LoggerFactory.getLogger("flashback_android/glfw");
     private static final Set<String> REPORTED = ConcurrentHashMap.newKeySet();
 
     private GlfwSafety() {}

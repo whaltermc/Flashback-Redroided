@@ -1,0 +1,15 @@
+{
+  "required": true,
+  "package": "dev.whaltermc.fba.mixin",
+  "compatibilityLevel": "JAVA_25",
+  "client": [
+    "FileDialogMixin",
+    "FFmpegRecorderMixin"
+  ],
+  "injectors": {
+    "defaultRequire": 1
+  },
+  "mixinextras": {
+    "minVersion": "0.5.5"
+  }
+}
