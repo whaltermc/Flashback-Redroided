@@ -13,18 +13,18 @@ import java.util.Properties;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 
-// Talks to the launcher's own file picker through request/response files.
-// The game drops a request into ".droidbridge/"; the launcher shows the
+// Talks to the FileDialogModule launcher picker through request/response files.
+// The game drops a request into ".filedialogmodule/"; the launcher shows the
 // system picker and answers with a readable path. Both files are removed
 // afterwards so stale requests never leak into the next pick.
 //
 // Layout:
-// .droidbridge/flashdroid-file-dialog.request.properties   token, defaultPath, description, filters (a;b;c)
-// .droidbridge/flashdroid-file-dialog.response.properties  token, status (ok|cancel/...), path, message
+// .filedialogmodule/filedialogmodule-file-dialog.request.properties   token, defaultPath, description, filters (a;b;c)
+// .filedialogmodule/filedialogmodule-file-dialog.response.properties  token, status (ok|cancel/...), path, message
 final class LauncherPicker {
-    static final String BRIDGE_DIR = ".droidbridge";
-    static final String REQUEST_NAME = "flashdroid-file-dialog.request.properties";
-    static final String RESPONSE_NAME = "flashdroid-file-dialog.response.properties";
+    static final String BRIDGE_DIR = ".filedialogmodule";
+    static final String REQUEST_NAME = "filedialogmodule-file-dialog.request.properties";
+    static final String RESPONSE_NAME = "filedialogmodule-file-dialog.response.properties";
     private static final long POLL_MILLIS = 100;
 
     // "ok" carries a path; "cancel"/"timeout" carry none; "error" means no picker answered.
