@@ -25,7 +25,59 @@ public class FileDialogMixin {
 
     private static final Logger LOGGER = LoggerFactory.getLogger("flashback_android");
 
+    private static final String DOWNLOADS_PATH = "/storage/emulated/0/Downloads";
+
+    /** Cached probe result; -1 unknown, 1 usable, 0 not. */
+    private static int downloadsUsable = -1;
+
+    /**
+     * Shared Downloads is the friendliest destination -- the file shows up in
+     * any file manager and most gallery apps. It is not reliably writable,
+     * though: from Android 10 scoped storage blocks direct writes outside the
+     * app's own directories unless the launcher was granted broad storage
+     * access, and some launchers run the game in a sandbox that cannot reach it
+     * at all. So probe it for real once instead of assuming, and fall back to
+     * the game directory when it is not usable.
+     */
+    private static synchronized boolean flashbackRedroided$canUseDownloads() {
+        if (downloadsUsable >= 0) {
+            return downloadsUsable == 1;
+        }
+
+        boolean usable = false;
+        File dir = new File(DOWNLOADS_PATH);
+        if (dir.isDirectory() && dir.canWrite()) {
+            File probe = null;
+            try {
+                probe = File.createTempFile("fba-write-probe", ".tmp", dir);
+                try (java.io.FileOutputStream out = new java.io.FileOutputStream(probe)) {
+                    out.write(0);
+                }
+                usable = true;
+            } catch (Throwable t) {
+                LOGGER.debug("Downloads is not writable", t);
+            } finally {
+                if (probe != null) {
+                    try {
+                        probe.delete();
+                    } catch (Throwable ignored) {
+                        // best effort
+                    }
+                }
+            }
+        }
+
+        downloadsUsable = usable ? 1 : 0;
+        LOGGER.info("Export directory: {}",
+                usable ? DOWNLOADS_PATH : "<game dir>/flashback/exports");
+        return usable;
+    }
+
     private static File flashbackRedroided$getExportDir() {
+        if (AndroidInput.isMobile() && flashbackRedroided$canUseDownloads()) {
+            return new File(DOWNLOADS_PATH);
+        }
+
         File dir = new File(
                 Minecraft.getInstance().gameDirectory,
                 "flashback/exports"
