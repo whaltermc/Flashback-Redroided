@@ -1,3 +1,5 @@
+// Copyright (c) 2026 WhalterMC. All Rights Reserved.
+
 package dev.whaltermc.fba.mixin;
 
 import com.moulberry.flashback.Flashback;
