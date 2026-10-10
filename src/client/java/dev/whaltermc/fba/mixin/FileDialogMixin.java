@@ -199,18 +199,17 @@ public class FileDialogMixin {
             remap = false,
             require = 0
     )
-    private static void flashbackRedroided$disableNativeOpenDialogOnMobile(
+    private static void flashbackRedroided$openFileDialog(
             String defaultPath,
             String filterDescription,
             String[] filters,
             CallbackInfoReturnable<CompletableFuture<String>> cir
     ) {
-        if (FileActionsPatch.selected()) {
+        // Mobile has no native dialog to fall back to, so route it through
+        // the folders too; the bridge uses hardcoded paths when selection
+        // never ran.
+        if (FileActionsPatch.selected() || AndroidInput.isMobile()) {
             cir.setReturnValue(FileActionsBridge.open(filters));
-            return;
-        }
-        if (AndroidInput.isMobile()) {
-            cir.setReturnValue(CompletableFuture.completedFuture(null));
         }
     }
 }
