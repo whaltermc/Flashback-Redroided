@@ -25,7 +25,9 @@ public final class NativeLoader {
             "libswresample.so", "libjniswresample.so",
             "libavcodec.so", "libjniavcodec.so",
             "libavformat.so", "libjniavformat.so",
-            "libswscale.so", "libjniswscale.so"
+            "libswscale.so", "libjniswscale.so",
+            "libavfilter.so", "libjniavfilter.so",
+            "libavdevice.so", "libjniavdevice.so"
     };
 
     private static boolean done;
@@ -36,6 +38,13 @@ public final class NativeLoader {
         if (done) return;
         done = true;
 
+        // Permanently disable JavaCPP's own native loader on Android — we load
+        // the bionic-built android-arm64 libraries ourselves below. JavaCPP
+        // detects this OS as linux-arm64 and would otherwise extract +
+        // dlopen unusable .so files from upstream jars (linker namespace
+        // UnsatisfiedLinkError). Loader.isLoadLibraries() reads this property
+        // dynamically, so leaving it set keeps all future Loader.load() calls
+        // as no-ops. Do NOT clear it, not even on failure.
         System.setProperty("org.bytedeco.javacpp.loadlibraries", "false");
 
         try {
@@ -66,7 +75,6 @@ public final class NativeLoader {
             LOGGER.info("Loaded {} FFmpeg/JavaCPP natives from {} ({})", loaded, dir, source);
 
         } catch (Throwable t) {
-            System.clearProperty("org.bytedeco.javacpp.loadlibraries");
             LOGGER.error("Failed to load bundled FFmpeg natives", t);
         }
     }
