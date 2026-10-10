@@ -10,7 +10,8 @@
     "ReplayUIMixin",
     "CursorInputMixin",
     "VideoCodecProbeMixin",
-    "FramebufferMixin"
+    "FramebufferMixin",
+    "MinecraftClientMixin"
   ],
   "injectors": {
     "defaultRequire": 0
