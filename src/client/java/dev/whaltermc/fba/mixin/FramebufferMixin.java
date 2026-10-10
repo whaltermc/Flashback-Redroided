@@ -231,6 +231,83 @@ public abstract class FramebufferMixin {
         } catch (Throwable ignored) {
             // best effort
         }
+        probeDirectRead(width, height, format, type);
+    }
+
+    private static final int GL_READ_FRAMEBUFFER_BINDING = 0x8CAA;
+
+    /** Reused scratch buffer for the direct-read probe below. */
+    private static ByteBuffer probeCopy;
+    private static int probeSize;
+    private static long probeFrames;
+    private static int probeBlankStreak;
+
+    /**
+     * Diagnostic probe: after Flashback's PBO read, read the same framebuffer
+     * region straight into client memory (no PBO) and check for content. This
+     * tells a black flip-blit / wrong READ binding apart from a broken PBO
+     * pack path: if the direct read has pixels while the PBO stream is blank,
+     * only the PBO path is broken; if both are blank, the source framebuffer
+     * itself holds nothing at read time. Read-only with respect to GL state
+     * that matters (rebinds the PBO Flashback expects to still be bound).
+     */
+    private static void probeDirectRead(int width, int height, int format, int type) {
+        try {
+            int readBinding = GL30C.glGetInteger(GL_READ_FRAMEBUFFER_BINDING);
+            long bytes = (long) width * height * 4;
+            if (bytes <= 0 || bytes > Integer.MAX_VALUE) return;
+            int size = (int) bytes;
+            if (probeCopy == null || probeSize != size) {
+                ByteBuffer fresh = MemoryUtil.memAlloc(size);
+                if (probeCopy != null) {
+                    try {
+                        MemoryUtil.memFree(probeCopy);
+                    } catch (Throwable ignored) {
+                        // best effort
+                    }
+                }
+                probeCopy = fresh;
+                probeSize = size;
+            }
+            // Client-memory reads need no pack buffer bound.
+            GL30C.glBindBuffer(GL30C.GL_PIXEL_PACK_BUFFER, 0);
+            probeCopy.clear();
+            GL30C.glReadPixels(0, 0, width, height, format, type, probeCopy);
+            int err = GL30C.glGetError();
+            if (err != GL30C.GL_NO_ERROR) {
+                if (probeFrames == 0) {
+                    LOGGER.warn("pbo probe: direct glReadPixels failed, GL error 0x{} (readBinding={})",
+                            Integer.toHexString(err), readBinding);
+                }
+                return;
+            }
+            boolean blank = true;
+            int samples = Math.min(256, size / 4);
+            int stride = Math.max(1, (size / 4) / samples);
+            for (int i = 0; i < samples; i++) {
+                if (probeCopy.getInt(i * stride * 4) != 0) {
+                    blank = false;
+                    break;
+                }
+            }
+            probeFrames++;
+            if (blank) {
+                probeBlankStreak++;
+                if (probeBlankStreak == 1 || probeBlankStreak % 600 == 0) {
+                    LOGGER.warn("pbo probe: direct read is blank too ({} consecutive, readBinding={})",
+                            probeBlankStreak, readBinding);
+                }
+            } else if (probeBlankStreak > 0) {
+                LOGGER.warn("pbo probe: direct read HAS pixels after {} blank reads (readBinding={})",
+                        probeBlankStreak, readBinding);
+                probeBlankStreak = 0;
+            } else if (probeFrames == 1) {
+                LOGGER.warn("pbo probe: direct read has pixels on first frame (readBinding={})",
+                        readBinding);
+            }
+        } catch (Throwable t) {
+            LOGGER.warn("pbo probe: direct read failed", t);
+        }
     }
 
     /**
