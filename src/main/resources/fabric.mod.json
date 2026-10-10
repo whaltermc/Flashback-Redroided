@@ -47,9 +47,9 @@
   ],
 
   "depends": {
-    "flashback": {
-      "package": "net.moulberry.flashback",
-      "parent": true
-    }
+    "fabricloader": ">=0.19.5",
+    "minecraft": "26.3",
+    "fabric-api": "*",
+    "flashback": "*"
   }
 }
