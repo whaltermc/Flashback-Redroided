@@ -2,18 +2,23 @@ name: Build
 
 on:
   push:
-    branches: ["1.21"]
+    branches: ["1.21", "26.x", "main"]
     tags: ["v*"]
   pull_request:
-    branches: ["1.21"]
+    branches: ["1.21", "26.x", "main"]
   workflow_dispatch:
 
 jobs:
   build:
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        branch: [1.21, 26.x, main]
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          ref: ${{ matrix.branch }}
 
       - name: Set up Java 25
         uses: actions/setup-java@v4
@@ -32,8 +37,8 @@ jobs:
       - name: Upload jar
         uses: actions/upload-artifact@v4
         with:
-          name: flashback-redroided-1.21-${{ github.sha }}
-          path: build/libs/flashback-redroided-1.21.11-*.jar
+          name: flashback-redroided-${{ matrix.branch }}-${{ github.sha }}
+          path: build/libs/*-all.jar
           if-no-files-found: error
 
       - name: Publish to Modrinth
@@ -53,7 +58,7 @@ jobs:
       - name: Download built jars
         uses: actions/download-artifact@v4
         with:
-          name: flashback-redroided-1.21-${{ github.sha }}
+          name: flashback-redroided-${{ matrix.branch }}-${{ github.sha }}
           path: dist
 
       - name: Publish GitHub release
