@@ -21,6 +21,9 @@ public abstract class FramebufferMixin {
 
     private static final Logger LOGGER = LoggerFactory.getLogger("flashback_android");
 
+    private static final java.util.concurrent.atomic.AtomicBoolean ENTRY_LOG =
+            new java.util.concurrent.atomic.AtomicBoolean();
+
     private static String glErr() {
         int e = GL11C.glGetError();
         return switch (e) {
@@ -52,21 +55,33 @@ public abstract class FramebufferMixin {
     ) {
         long want = (long) width * (long) height * 4L;
 
+        // Log once per session on entry so we can tell definitively whether
+        // this handler runs at all and with what dimensions, and log every
+        // path that yields null -- a silent null is indistinguishable from the
+        // injection not matching.
+        if (ENTRY_LOG.compareAndSet(false, true)) {
+            LOGGER.warn("pbo map: handler entered, target={} access={} {}x{} want={}",
+                    target, access, width, height, want);
+        }
+
         // Never map past what was actually allocated: an over-long range is
         // GL_INVALID_VALUE and glMapBufferRange then returns null.
         long size = want;
+        int allocated = -1;
         try {
             int[] bufSize = new int[1];
             GL15C.glGetBufferParameteriv(target, GL15C.GL_BUFFER_SIZE, bufSize);
-            if (bufSize[0] > 0 && bufSize[0] < size) {
-                size = bufSize[0];
+            allocated = bufSize[0];
+            if (allocated > 0 && allocated < size) {
+                size = allocated;
             }
-            LOGGER.debug("pbo map: {}x{} want={} alloc={}", width, height, want, bufSize[0]);
         } catch (Throwable t) {
-            LOGGER.debug("pbo map: glGetBufferParameteriv failed", t);
+            LOGGER.warn("pbo map: glGetBufferParameteriv failed (err={})", glErr(), t);
         }
 
         if (size <= 0 || size > Integer.MAX_VALUE) {
+            LOGGER.warn("pbo map: refusing to map, size={} allocated={} {}x{} (err={})",
+                    size, allocated, width, height, glErr());
             return null;
         }
 
