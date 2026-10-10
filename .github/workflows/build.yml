@@ -33,7 +33,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: flashback-redroided-main-${{ github.sha }}
-          path: build/libs/*-all.jar
+          path: build/libs/*.jar
           if-no-files-found: error
 
       - name: Publish to Modrinth
