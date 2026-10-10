@@ -14,16 +14,9 @@ import org.bytedeco.javacpp.Pointer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.spongepowered.asm.mixin.Mixin;
-import org.spongepowered.asm.mixin.Shadow;
 import org.spongepowered.asm.mixin.injection.At;
-import org.spongepowered.asm.mixin.injection.Inject;
-import org.spongepowered.asm.mixin.injection.ModifyVariable;
-import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
-
-import java.nio.ByteBuffer;
 
 import static org.bytedeco.ffmpeg.global.avutil.AV_PIX_FMT_NV12;
-import static org.bytedeco.ffmpeg.global.avutil.AV_PIX_FMT_YUV420P;
 import static org.bytedeco.ffmpeg.global.avutil.av_channel_layout_default;
 import static org.bytedeco.ffmpeg.global.avutil.av_channel_layout_from_mask;
 import static org.bytedeco.ffmpeg.global.avutil.av_dict_set;
@@ -46,12 +39,6 @@ public abstract class FFmpegRecorderMixin {
     private static final long AV_CH_LAYOUT_5POINT1  = 0x60FL;
     private static final long AV_CH_LAYOUT_6POINT1  = 0x70FL;
     private static final long AV_CH_LAYOUT_7POINT1  = 0x63FL;
-
-    @Shadow
-    private AVCodec video_codec;
-
-    @Shadow
-    private AVCodecContext video_c;
 
     private static long defaultMask(int nbChannels) {
         return switch (nbChannels) {
@@ -225,110 +212,5 @@ public abstract class FFmpegRecorderMixin {
             LOGGER.warn("Failed to force NV12 for MediaCodec, continuing with default", t);
         }
         return original.call(ctx, codec, options);
-    }
-
-    /** Reused per-thread scratch for the U plane so we don't allocate per frame. */
-    private static final ThreadLocal<byte[]> U_SCRATCH = new ThreadLocal<>();
-
-    private static boolean flashbackRedroided$isMediaCodec(AVCodec codec) {
-        try {
-            return codec != null
-                    && codec.name() != null
-                    && !codec.isNull()
-                    && codec.name().getString().endsWith("_mediacodec");
-        } catch (Throwable t) {
-            return false;
-        }
-    }
-
-    @ModifyVariable(
-            method = "recordImage",
-            at = @At("HEAD"),
-            argsOnly = true,
-            ordinal = 2,
-            remap = false,
-            require = 0
-    )
-    private int flashbackRedroided$useNv12(int pixelFormat) {
-        // Only rewrite the exact YUV420P -> NV12 case for MediaCodec.
-        if (pixelFormat != AV_PIX_FMT_YUV420P) {
-            return pixelFormat;
-        }
-        if (!flashbackRedroided$isMediaCodec(video_codec)) {
-            return pixelFormat;
-        }
-        return AV_PIX_FMT_NV12;
-    }
-
-    @Inject(
-            method = "recordImage",
-            at = @At("HEAD"),
-            remap = false,
-            require = 0
-    )
-    private void flashbackRedroided$convertYuv420pToNv12(
-            int width,
-            int height,
-            int pixelFormat,
-            ByteBuffer image,
-            CallbackInfo ci
-    ) {
-        if (pixelFormat != AV_PIX_FMT_YUV420P) {
-            return;
-        }
-        if (!flashbackRedroided$isMediaCodec(video_codec)) {
-            return;
-        }
-        flashbackRedroided$yuv420pToNv12InPlace(width, height, image);
-    }
-
-    /**
-     * Convert tightly-packed YUV420P to NV12 in place.
-     * Absolute get/put (position preserved), ThreadLocal scratch, never throws.
-     */
-    private static void flashbackRedroided$yuv420pToNv12InPlace(int width, int height, ByteBuffer image) {
-        try {
-            if (image == null || image.isReadOnly()) {
-                return;
-            }
-            if (width <= 0 || height <= 0 || (width & 1) != 0 || (height & 1) != 0) {
-                return;
-            }
-            long ySizeLong = (long) width * (long) height;
-            if (ySizeLong <= 0 || ySizeLong > Integer.MAX_VALUE / 2) {
-                return;
-            }
-            int ySize = (int) ySizeLong;
-            int chromaSize = ySize / 4;
-            if (chromaSize <= 0) {
-                return;
-            }
-            long requiredLong = (long) ySize + (long) chromaSize * 2L;
-            if (requiredLong > Integer.MAX_VALUE) {
-                return;
-            }
-            if (image.capacity() < (int) requiredLong) {
-                return;
-            }
-
-            byte[] u = U_SCRATCH.get();
-            if (u == null || u.length < chromaSize) {
-                u = new byte[chromaSize];
-                U_SCRATCH.set(u);
-            }
-
-            int uBase = ySize;
-            int vBase = ySize + chromaSize;
-            for (int i = 0; i < chromaSize; i++) {
-                u[i] = image.get(uBase + i);
-            }
-            for (int i = 0; i < chromaSize; i++) {
-                byte v = image.get(vBase + i);
-                image.put(uBase + (i << 1), u[i]);
-                image.put(uBase + (i << 1) + 1, v);
-            }
-        } catch (Throwable t) {
-            LOGGER.debug("NV12 in-place conversion skipped", t);
-        }
     }
 }
