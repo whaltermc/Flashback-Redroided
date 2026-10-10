@@ -25,7 +25,9 @@ public final class NativeLoader {
             "libswresample.so", "libjniswresample.so",
             "libavcodec.so", "libjniavcodec.so",
             "libavformat.so", "libjniavformat.so",
-            "libswscale.so", "libjniswscale.so"
+            "libswscale.so", "libjniswscale.so",
+            "libavfilter.so", "libjniavfilter.so",
+            "libavdevice.so", "libjniavdevice.so"
     };
 
     private static boolean done;
@@ -36,8 +38,17 @@ public final class NativeLoader {
         if (done) return;
         done = true;
 
-        // Disable JavaCPP's own native loader — we manage loading ourselves.
-        // Restored after loading so other JavaCPP users are not affected.
+        // Permanently disable JavaCPP's own native loader on Android — we load
+        // the bionic-built android-arm64 libraries ourselves below.
+        // JavaCPP detects this OS as linux-arm64, so if left enabled its
+        // Loader.load() (triggered e.g. by VideoContainer when the export
+        // screen opens) extracts glibc-linked linux-arm64 .so files from
+        // upstream jars into a cache dir the runtime linker namespace cannot
+        // access ("... is not accessible for the namespace" +
+        // UnsatisfiedLinkError). Loader.isLoadLibraries() reads this property
+        // dynamically on every call, so leaving it set keeps all future
+        // Loader.load() calls as no-ops and every native call resolves
+        // against the preloaded libraries. Do NOT clear it.
         System.setProperty("org.bytedeco.javacpp.loadlibraries", "false");
 
         loadSystemLib("mediandk");
@@ -58,23 +69,27 @@ public final class NativeLoader {
             }
 
             int loaded = 0;
+            int missing = 0;
             for (String lib : LIBS) {
                 Path p = dir.resolve(lib);
                 if (!Files.isRegularFile(p)) {
-                    LOGGER.debug("Native missing: {}", p);
+                    LOGGER.warn("Native missing: {}", p);
+                    missing++;
                     continue;
                 }
                 System.load(p.toAbsolutePath().toString());
                 loaded++;
             }
 
-            LOGGER.info("All Android natives loaded. Initializing FBA.");
+            if (missing > 0) {
+                LOGGER.warn("Loaded {}/{} Android natives from {} ({} missing)",
+                        loaded, LIBS.length, source, missing);
+            } else {
+                LOGGER.info("All {} Android natives loaded from {}", loaded, source);
+            }
 
         } catch (Throwable t) {
             LOGGER.error("Failed to load Android natives", t);
-        } finally {
-            // Always restore so other mods using JavaCPP can manage their own libs.
-            System.clearProperty("org.bytedeco.javacpp.loadlibraries");
         }
     }
 
