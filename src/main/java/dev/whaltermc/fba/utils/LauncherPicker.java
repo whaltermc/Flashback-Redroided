@@ -13,24 +13,21 @@ import java.util.Properties;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 
-/**
- * Talks to the launcher's own file picker through request/response files.
- * The game drops a request into {@code .droidbridge/}; the launcher shows
- * the system picker and answers with a readable path. Both files are removed
- * afterwards so stale requests never leak into the next pick.
- *
- * <pre>
- * .droidbridge/flashdroid-file-dialog.request.properties   token, defaultPath, description, filters (a;b;c)
- * .droidbridge/flashdroid-file-dialog.response.properties  token, status (ok|cancel|...), path, message
- * </pre>
- */
+// Talks to the launcher's own file picker through request/response files.
+// The game drops a request into ".droidbridge/"; the launcher shows the
+// system picker and answers with a readable path. Both files are removed
+// afterwards so stale requests never leak into the next pick.
+//
+// Layout:
+// .droidbridge/flashdroid-file-dialog.request.properties   token, defaultPath, description, filters (a;b;c)
+// .droidbridge/flashdroid-file-dialog.response.properties  token, status (ok|cancel/...), path, message
 final class LauncherPicker {
     static final String BRIDGE_DIR = ".droidbridge";
     static final String REQUEST_NAME = "flashdroid-file-dialog.request.properties";
     static final String RESPONSE_NAME = "flashdroid-file-dialog.response.properties";
     private static final long POLL_MILLIS = 100;
 
-    /** "ok" carries a path; "cancel"/"timeout" carry none; "error" means no picker answered. */
+    // "ok" carries a path; "cancel"/"timeout" carry none; "error" means no picker answered.
     record Result(String status, String path, String message) {
         static Result of(String status, String message) { return new Result(status, null, message); }
     }
@@ -45,7 +42,7 @@ final class LauncherPicker {
         return extensions.isEmpty() ? "*" : String.join(";", extensions);
     }
 
-    /** Blocks until the launcher answers, the timeout runs out, or this thread is interrupted. */
+    // Blocks until the launcher answers, the timeout runs out, or this thread is interrupted.
     static Result pick(Path baseDir, String defaultPath, String description, List<String> extensions, long timeoutSeconds)
             throws InterruptedException {
         Path bridgeDir = baseDir.resolve(BRIDGE_DIR);
@@ -98,10 +95,8 @@ final class LauncherPicker {
         return Result.of("timeout", "no answer from the launcher within " + timeoutSeconds + "s");
     }
 
-    /**
-     * Reads one response attempt. Returns null when the file belongs to an
-     * older request or is still being written, so the poll loop retries.
-     */
+    // Reads one response attempt. Returns null when the file belongs to an
+    // older request or is still being written, so the poll loop retries.
     private static Result readAnswer(Path response, String token) throws InterruptedException {
         Properties answer = new Properties();
         try (InputStream in = Files.newInputStream(response)) {

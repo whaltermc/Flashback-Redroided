@@ -16,25 +16,21 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Supplier;
 
-/**
- * Backs Flashback's file dialogs with folders instead of native UI. Every
- * call returns a future: a path on success, null when the dialog counts as
- * cancelled. Work runs on daemon threads, mirroring Flashback's own dialog
- * thread.
- *
- * <p>Import has no picker to return to, so the import folder doubles as the
- * drop point: the Files app is opened on it and the call completes once a
- * fresh file settles there.
- *
- * <p>Tuning flags:
- * <ul>
- *   <li>{@code -Dfba.fileDir=/abs/path} pins the import/export root.</li>
- *   <li>{@code -Dfba.fileActions=false} switches the whole hook off.</li>
- *   <li>{@code -Dfba.importMode=newest} picks the newest file instead of waiting.</li>
- *   <li>{@code -Dfba.importWaitSeconds=N} caps the folder watch (default 300).</li>
- *   <li>{@code -Dfba.picker=launcher} asks the launcher picker first (default).</li>
- * </ul>
- */
+// Backs Flashback's file dialogs with folders instead of native UI. Every
+// call returns a future: a path on success, null when the dialog counts as
+// cancelled. Work runs on daemon threads, mirroring Flashback's own dialog
+// thread.
+//
+// Import has no picker to return to, so the import folder doubles as the
+// drop point: the Files app is opened on it and the call completes once a
+// fresh file settles there.
+//
+// Tuning flags:
+// - "-Dfba.fileDir=/abs/path" pins the import/export root.
+// - "-Dfba.fileActions=false" switches the whole hook off.
+// - "-Dfba.importMode=newest" picks the newest file instead of waiting.
+// - "-Dfba.importWaitSeconds=N" caps the folder watch (default 300).
+// - "-Dfba.picker=launcher" asks the launcher picker first (default).
 public final class FileActionsBridge {
     private static final ExecutorService JOBS = Executors.newSingleThreadExecutor(task -> {
         Thread worker = new Thread(task, "FbaFileActions");
@@ -42,7 +38,7 @@ public final class FileActionsBridge {
         return worker;
     });
 
-    /** Shared-storage home used when the app can write there; keeps exports visible in file managers. */
+    // Shared-storage home used when the app can write there; keeps exports visible in file managers.
     private static final String SHARED_ROOT = "/storage/emulated/0/Download/FlashbackAndroid";
     private static final String SHARED_PREFIX = "/storage/emulated/0/";
     private static final String DOCUMENTS_BASE = "content://com.android.externalstorage.documents/";
@@ -56,11 +52,9 @@ public final class FileActionsBridge {
 
     private FileActionsBridge() {}
 
-    /**
-     * Chooses the import/export root: the {@code -Dfba.fileDir} override when
-     * set, otherwise shared storage when it is writable, otherwise the given
-     * fallback. Creates both folders.
-     */
+    // Chooses the import/export root: the -Dfba.fileDir override when set,
+    // otherwise shared storage when it is writable, otherwise the given
+    // fallback. Creates both folders.
     static FileActions configure(Path fallbackRoot) throws IOException {
         Path root = fallbackRoot;
         String override = System.getProperty("fba.fileDir");
@@ -80,7 +74,7 @@ public final class FileActionsBridge {
         return ready;
     }
 
-    /** Returns the shared root when the Files app can show it and this process can write into it. */
+    // Returns the shared root when the Files app can show it and this process can write into it.
     static Path sharedRootIfUsable(Path shared) {
         try {
             if (shared.getParent() == null || !Files.isDirectory(shared.getParent().getParent())) return null;
@@ -94,7 +88,7 @@ public final class FileActionsBridge {
         }
     }
 
-    /** Stands in for {@code openFileDialog}: resolves to a matching file from the import folder. */
+    // Stands in for openFileDialog: resolves to a matching file from the import folder.
     public static CompletableFuture<String> open(String[] extensions) {
         var current = files;
         if (current == null) {
@@ -222,7 +216,7 @@ public final class FileActionsBridge {
         return accepted.isEmpty() ? "file" : "." + String.join(", .", accepted) + " file";
     }
 
-    /** Stands in for {@code saveFileDialog}: reserves a never-overwritten path in the export folder. */
+    // Stands in for saveFileDialog: reserves a never-overwritten path in the export folder.
     public static CompletableFuture<String> save(String defaultName, String[] extensions) {
         return submit(() -> {
             var current = files;
@@ -238,7 +232,7 @@ public final class FileActionsBridge {
         });
     }
 
-    /** Stands in for {@code openFolderDialog}: the export folder, created on demand. */
+    // Stands in for openFolderDialog: the export folder, created on demand.
     public static CompletableFuture<String> folder() {
         return submit(() -> {
             var current = files;
@@ -253,7 +247,7 @@ public final class FileActionsBridge {
         });
     }
 
-    /** Runs work on the file-actions thread; completes with null when the hook was never configured. */
+    // Runs work on the file-actions thread; completes with null when the hook was never configured.
     private static CompletableFuture<String> submit(Supplier<String> work) {
         if (files == null) {
             System.err.println("[FBA Files] NOT_CONFIGURED");
@@ -277,7 +271,7 @@ public final class FileActionsBridge {
 
     // ---- Opening the Android Files app (best effort; the launcher may restrict this) ----
 
-    /** DocumentsUI link showing this folder, or null when it sits outside primary shared storage. */
+    // DocumentsUI link showing this folder, or null when it sits outside primary shared storage.
     static String documentsUri(Path dir) {
         String path = dir.toAbsolutePath().normalize().toString().replace('\\', '/');
         if (path.startsWith("/sdcard/")) path = SHARED_PREFIX + path.substring("/sdcard/".length());
@@ -287,7 +281,7 @@ public final class FileActionsBridge {
         return DOCUMENTS_BASE + "document/" + URLEncoder.encode("primary:" + relative, StandardCharsets.UTF_8).replace("+", "%20");
     }
 
-    /** Keeps the old entry point for callers that kept the previous name. */
+    // Kept for callers that used the previous name.
     static String folderUri(Path dir) {
         return documentsUri(dir);
     }
@@ -320,7 +314,7 @@ public final class FileActionsBridge {
                 + "). Open " + folder + " yourself and copy the file there.");
     }
 
-    /** Runs an activity-manager command with the game process env scrubbed; null on success, else a reason. */
+    // Runs an activity-manager command with the game process env scrubbed; null on success, else a reason.
     private static String runCommand(List<String> command) {
         try {
             var builder = new ProcessBuilder(command).redirectErrorStream(true);
