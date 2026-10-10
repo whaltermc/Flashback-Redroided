@@ -97,7 +97,12 @@ public abstract class VideoCodecProbeMixin {
 
         // Force NDK path for all MediaCodec encoders.
         try {
-            if (options != null && !options.isNull()) {
+            // No !options.isNull() guard: Flashback builds its options with
+            // `new AVDictionary(null)` (address 0). av_dict_set takes
+            // AVDictionary**, so JavaCPP passes &address and a null-address
+            // wrapper is valid -- guarding on isNull() skipped the option
+            // entirely and made the probe fall back to the broken JNI path.
+            if (options != null) {
                 av_dict_set(options, "ndk_codec", "1", 0);
             }
         } catch (Throwable t) {
