@@ -3,11 +3,11 @@
 package dev.whaltermc.fba.mixin;
 
 import com.moulberry.flashback.Flashback;
+import dev.whaltermc.fba.SdlFilter;
 import net.minecraft.client.Minecraft;
 import org.lwjgl.PointerBuffer;
 import org.lwjgl.sdl.SDLDialog;
 import org.lwjgl.sdl.SDL_DialogFileCallbackI;
-import org.lwjgl.sdl.SDL_DialogFileFilter;
 import org.lwjgl.sdl.SDLError;
 import org.lwjgl.system.MemoryStack;
 import org.lwjgl.system.MemoryUtil;
@@ -16,11 +16,13 @@ import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Overwrite;
 
 import java.io.File;
-import java.nio.ByteBuffer;
 import java.util.ArrayList;
+import java.util.concurrent.Callable;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.function.BiConsumer;
+import java.util.function.Function;
 
 // Native dialogs, chained: SDL first, then tinyfd, then a hardcoded path.
 // SDL is the platform dialog Flashback itself uses; when its backend is
@@ -41,26 +43,6 @@ public class FileDialogMixin {
     // callback reachable until it fires so native code never calls freed memory.
     private static volatile CompletableFuture<String> ongoingDialog;
     private static volatile SDL_DialogFileCallbackI heldSdlCallback;
-
-    // Shows an SDL dialog; the callback and tinyfd/fallback legs differ per dialog.
-    private interface SdlShower {
-        void show(SDL_DialogFileCallbackI callback, long window) throws Throwable;
-    }
-
-    // Post-processes an SDL-picked path; null in, null out when there is nothing to fix.
-    private interface PathFix {
-        String fix(String path);
-    }
-
-    // Blocking tinyfd call; null or empty when it has nothing to offer.
-    private interface TinyAttempt {
-        String run() throws Throwable;
-    }
-
-    // Last-resort hardcoded path; null when there is none (imports).
-    private interface HardFallback {
-        String run() throws Throwable;
-    }
 
     private static File flashbackRedroided$getDefaultExportDir() {
         File dir = new File(
@@ -126,55 +108,6 @@ public class FileDialogMixin {
         future.complete(value);
     }
 
-    // One-entry SDL filter built like vanilla: description plus ;-joined patterns.
-    private static final class SdlFilter {
-        final SDL_DialogFileFilter.Buffer buffer;
-        final ByteBuffer name;
-        final ByteBuffer pattern;
-
-        static SdlFilter of(String filterDescription, String[] filters) {
-            var joined = new StringBuilder();
-            if (filters != null) {
-                for (String entry : filters) {
-                    if (entry == null || entry.isEmpty()) {
-                        continue;
-                    }
-                    if (joined.length() > 0) {
-                        joined.append(';');
-                    }
-                    joined.append(entry);
-                }
-            }
-            ByteBuffer name = MemoryUtil.memUTF8(
-                    filterDescription != null ? filterDescription : "", true);
-            ByteBuffer pattern = MemoryUtil.memUTF8(joined.toString(), true);
-            SDL_DialogFileFilter.Buffer buffer = SDL_DialogFileFilter.calloc(1);
-            buffer.get(0).name(name).pattern(pattern);
-            return new SdlFilter(buffer, name, pattern);
-        }
-
-        private SdlFilter(SDL_DialogFileFilter.Buffer buffer, ByteBuffer name, ByteBuffer pattern) {
-            this.buffer = buffer;
-            this.name = name;
-            this.pattern = pattern;
-        }
-
-        void free() {
-            try {
-                buffer.free();
-            } catch (Throwable ignored) {
-            }
-            try {
-                MemoryUtil.memFree(name);
-            } catch (Throwable ignored) {
-            }
-            try {
-                MemoryUtil.memFree(pattern);
-            } catch (Throwable ignored) {
-            }
-        }
-    }
-
     // Bare extensions for tinyfd: "mp4", ".png" and "*.replay" all become "mp4".
     private static String[] flashbackRedroided$tinyExtensions(String[] filters) {
         var cleaned = new ArrayList<String>();
@@ -234,13 +167,15 @@ public class FileDialogMixin {
 
     // Shared SDL attempt used by all three dialogs. Shows the dialog on the
     // caller thread like vanilla; on backend failure it frees the filter and
-    // hands the tinyfd/fallback legs to the worker via onSdlFailed.
+    // hands the tinyfd/fallback legs to the worker via onSdlFailed. Plain JDK
+    // functional types on purpose: helper types inside a mixin package cannot
+    // be referenced and crash loading with IllegalClassLoadError.
     private static void flashbackRedroided$attemptSdl(
             CompletableFuture<String> future,
             String kind,
             SdlFilter filter,
-            SdlShower shower,
-            PathFix fixResult,
+            BiConsumer<SDL_DialogFileCallbackI, Long> shower,
+            Function<String, String> fixResult,
             Runnable onSdlFailed
     ) {
         long window;
@@ -270,12 +205,12 @@ public class FileDialogMixin {
                 return;
             }
             flashbackRedroided$settleDialog(
-                    future, fixResult.fix(MemoryUtil.memUTF8Safe(MemoryUtil.memGetAddress(filelist))));
+                    future, fixResult.apply(MemoryUtil.memUTF8Safe(MemoryUtil.memGetAddress(filelist))));
         };
         heldSdlCallback = callback;
         try {
             SDLError.SDL_ClearError();
-            shower.show(callback, window);
+            shower.accept(callback, window);
         } catch (Throwable t) {
             if (filter != null) {
                 filter.free();
@@ -289,13 +224,13 @@ public class FileDialogMixin {
     // Empty tinyfd results fall through to the fallback; both failing settles null.
     private static void flashbackRedroided$tinyThenFallback(
             CompletableFuture<String> future,
-            TinyAttempt tiny,
-            HardFallback fallback
+            Callable<String> tiny,
+            Callable<String> fallback
     ) {
         DIALOG_WORKER.execute(() -> {
             String value = null;
             try {
-                value = tiny.run();
+                value = tiny.call();
                 if (value != null && value.isEmpty()) {
                     value = null;
                 }
@@ -303,7 +238,7 @@ public class FileDialogMixin {
             }
             if (value == null) {
                 try {
-                    value = fallback.run();
+                    value = fallback.call();
                 } catch (Throwable ignored) {
                     value = null;
                 }
