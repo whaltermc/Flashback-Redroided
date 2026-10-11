@@ -17,7 +17,7 @@ import java.util.Map;
 public final class ClassPatcher {
 
     private static final String GLFW = "org/lwjgl/glfw/GLFW";
-    private static final String SAFETY = "com/whaltermc/GlfwSafety";
+    private static final String SAFETY = "dev/whaltermc/fba/GlfwFallback";
 
     private ClassPatcher() {}
 
@@ -59,7 +59,7 @@ public final class ClassPatcher {
             this.className = name;
             this.isInterface = (access & Opcodes.ACC_INTERFACE) != 0;
             this.skip = isInterface
-                    || (name != null && name.startsWith("com/whaltermc/"));
+                    || (name != null && name.startsWith("dev/whaltermc/fba/"));
             super.visit(version, access, name, signature, superName, interfaces);
         }
 
