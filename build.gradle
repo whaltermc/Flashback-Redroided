@@ -59,6 +59,14 @@ modCompileOnly "maven.modrinth:4das1Fjq:${flashback_version}"
 // (neither Fabric Loader nor Flashback ship MixinExtras).
 modImplementation(include("io.github.llamalad7:mixinextras-fabric:0.5.5"))
 
+// Compile-only: MC and launchers provide these dialog bindings at runtime
+// (Copper ships TinyFileDialogs/SDL stand-ins first on the classpath, so
+// bundling our own copies would shadow them). The classes are only touched
+// inside guarded legs, so a launcher without them cascades instead of
+// breaking mixin loading.
+modCompileOnly "org.lwjgl:lwjgl-nfd:3.3.3"
+modCompileOnly "org.lwjgl:lwjgl-tinyfd:3.3.3"
+
 shadow files("ffmpeg/javacpp.jar")
 shadow files("ffmpeg/javacpp-android-arm64.jar")
 shadow files("ffmpeg/ffmpeg.jar")

@@ -3,9 +3,12 @@
 package dev.whaltermc.fba.mixin;
 
 import dev.whaltermc.fba.AndroidInput;
-import dev.whaltermc.fba.utils.FileActionsBridge;
-import dev.whaltermc.fba.utils.FileActionsPatch;
 import net.minecraft.client.Minecraft;
+import org.lwjgl.PointerBuffer;
+import org.lwjgl.system.MemoryStack;
+import org.lwjgl.util.nfd.NFDFilterItem;
+import org.lwjgl.util.nfd.NativeFileDialog;
+import org.lwjgl.util.tinyfd.TinyFileDialogs;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.spongepowered.asm.mixin.Mixin;
@@ -16,8 +19,17 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
 import java.io.File;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
+// Native dialogs, chained: NFD first, then tinyfd, then a hardcoded path.
+// NFD is what Flashback itself uses here; both native legs block, so they run
+// on a dialog worker thread. When neither backend exists on the launcher,
+// exports still land in Downloads or the game directory instead of failing.
+// A cancelled native dialog completes with null and never cascades:
+// cancelling must stay a cancel.
 @Mixin(
         targets = "com.moulberry.flashback.exporting.AsyncFileDialogs",
         remap = false,
@@ -27,20 +39,54 @@ public class FileDialogMixin {
 
     private static final Logger LOGGER = LoggerFactory.getLogger("flashback_android");
 
+    private static final ExecutorService DIALOG_WORKER = Executors.newSingleThreadExecutor(task -> {
+        Thread worker = new Thread(task, "FbaDialogs");
+        worker.setDaemon(true);
+        return worker;
+    });
+
+    // One dialog at a time, mirroring vanilla hasDialog.
+    private static volatile CompletableFuture<String> ongoingDialog;
+
+    // NFD_Init runs once; a missing native library fails there first.
+    private static volatile boolean nfdReady;
+
+    // Thrown by an NFD leg the user cancels, so it settles null directly.
+    private static final class NfdCancelled extends Exception {
+    }
+
+    // Blocking NFD call; null or empty when it has nothing to offer.
+    private interface NfdAttempt {
+        String run() throws Throwable;
+    }
+
+    // Blocking tinyfd call; null or empty when it has nothing to offer.
+    private interface TinyAttempt {
+        String run() throws Throwable;
+    }
+
+    // Last-resort hardcoded path; null when there is none (imports).
+    private interface HardFallback {
+        String run() throws Throwable;
+    }
+
+    // Post-processes a picked path; null in, null out when there is nothing to fix.
+    private interface PathFix {
+        String fix(String path);
+    }
+
     private static final String DOWNLOADS_PATH = "/storage/emulated/0/Downloads";
 
-    /** Cached probe result; -1 unknown, 1 usable, 0 not. */
+    // Cached probe result; -1 unknown, 1 usable, 0 not.
     private static int downloadsUsable = -1;
 
-    /**
-     * Shared Downloads is the friendliest destination -- the file shows up in
-     * any file manager and most gallery apps. It is not reliably writable,
-     * though: from Android 10 scoped storage blocks direct writes outside the
-     * app's own directories unless the launcher was granted broad storage
-     * access, and some launchers run the game in a sandbox that cannot reach it
-     * at all. So probe it for real once instead of assuming, and fall back to
-     * the game directory when it is not usable.
-     */
+    // Shared Downloads is the friendliest destination -- the file shows up in
+    // any file manager and most gallery apps. It is not reliably writable,
+    // though: from Android 10 scoped storage blocks direct writes outside the
+    // app's own directories unless the launcher was granted broad storage
+    // access, and some launchers run the game in a sandbox that cannot reach it
+    // at all. So probe it for real once instead of assuming, and fall back to
+    // the game directory when it is not usable.
     private static synchronized boolean flashbackRedroided$canUseDownloads() {
         if (downloadsUsable >= 0) {
             return downloadsUsable == 1;
@@ -149,6 +195,181 @@ public class FileDialogMixin {
         return candidate.toFile();
     }
 
+    // Claims the dialog slot, or null when another dialog is already open.
+    private static CompletableFuture<String> flashbackRedroided$claimDialog() {
+        synchronized (FileDialogMixin.class) {
+            if (ongoingDialog != null
+                    || com.moulberry.flashback.exporting.AsyncFileDialogs.hasDialog()) {
+                return null;
+            }
+            var future = new CompletableFuture<String>();
+            ongoingDialog = future;
+            return future;
+        }
+    }
+
+    // Releases the slot and completes the future.
+    private static void flashbackRedroided$settleDialog(CompletableFuture<String> future, String value) {
+        synchronized (FileDialogMixin.class) {
+            if (ongoingDialog == future) {
+                ongoingDialog = null;
+            }
+        }
+        future.complete(value);
+    }
+
+    // Loads the NFD natives once; failure surfaces at the dialog call instead.
+    private static void flashbackRedroided$ensureNfd() {
+        if (!nfdReady) {
+            synchronized (FileDialogMixin.class) {
+                if (!nfdReady) {
+                    try {
+                        NativeFileDialog.NFD_Init();
+                    } catch (Throwable ignored) {
+                    }
+                    nfdReady = true;
+                }
+            }
+        }
+    }
+
+    // Single NFD filter item like vanilla: description plus comma-joined raw
+    // filters, or null for no filtering.
+    private static NFDFilterItem.Buffer flashbackRedroided$nfdFilter(
+            MemoryStack stack,
+            String filterDescription,
+            String[] filters
+    ) {
+        var joined = new StringBuilder();
+        if (filters != null) {
+            for (String entry : filters) {
+                if (entry == null || entry.isEmpty()) {
+                    continue;
+                }
+                if (joined.length() > 0) {
+                    joined.append(',');
+                }
+                joined.append(entry);
+            }
+        }
+        if (joined.length() == 0) {
+            return null;
+        }
+        NFDFilterItem.Buffer item = NFDFilterItem.malloc(1);
+        item.get(0)
+                .name(stack.UTF8(filterDescription != null ? filterDescription : ""))
+                .spec(stack.UTF8(joined.toString()));
+        return item;
+    }
+
+    // Reads the picked path out of an NFD result pointer, freeing it after.
+    private static String flashbackRedroided$nfdPath(PointerBuffer outPath) {
+        try {
+            return outPath.getStringUTF8(0);
+        } finally {
+            try {
+                NativeFileDialog.NFD_FreePath(outPath.get(0));
+            } catch (Throwable ignored) {
+            }
+        }
+    }
+
+    // Appends the single-filter extension when the picked name has none.
+    private static String flashbackRedroided$withExtension(String path, String autoExtension) {
+        if (path != null && autoExtension != null && path.indexOf('.') < 0) {
+            return path + "." + autoExtension;
+        }
+        return path;
+    }
+
+    // Shared chain used by all three dialogs, always off-thread: NFD, then
+    // tinyfd, then the hardcoded fallback. Cancelled natives settle null
+    // directly; failures fall through to the next leg.
+    private static void flashbackRedroided$dialogChain(
+            CompletableFuture<String> future,
+            PathFix fix,
+            NfdAttempt nfd,
+            TinyAttempt tiny,
+            HardFallback fallback
+    ) {
+        DIALOG_WORKER.execute(() -> {
+            String value = null;
+            try {
+                value = fix.fix(nfd.run());
+            } catch (NfdCancelled cancelled) {
+                flashbackRedroided$settleDialog(future, null);
+                return;
+            } catch (Throwable ignored) {
+            }
+            if (value == null) {
+                try {
+                    value = fix.fix(tiny.run());
+                } catch (Throwable ignored) {
+                    value = null;
+                }
+            }
+            if (value != null && value.isEmpty()) {
+                value = null;
+            }
+            if (value == null) {
+                try {
+                    value = fallback.run();
+                } catch (Throwable ignored) {
+                    value = null;
+                }
+            }
+            flashbackRedroided$settleDialog(future, value);
+        });
+    }
+
+    // Bare extensions for tinyfd: "mp4", ".png" and "*.replay" all become "mp4".
+    private static String[] flashbackRedroided$tinyExtensions(String[] filters) {
+        var cleaned = new ArrayList<String>();
+        if (filters != null) {
+            for (String entry : filters) {
+                if (entry == null) {
+                    continue;
+                }
+                for (String part : entry.split("[,;\\s]+")) {
+                    String ext = part.strip();
+                    while (ext.startsWith("*")) {
+                        ext = ext.substring(1);
+                    }
+                    while (ext.startsWith(".")) {
+                        ext = ext.substring(1);
+                    }
+                    if (!ext.isEmpty()) {
+                        cleaned.add(ext);
+                    }
+                }
+            }
+        }
+        return cleaned.toArray(new String[0]);
+    }
+
+    // tinyfd wants "*.ext" entries in a pointer buffer; empty means no filtering.
+    private static PointerBuffer flashbackRedroided$tinyPatterns(MemoryStack stack, String[] filters) {
+        String[] exts = flashbackRedroided$tinyExtensions(filters);
+        if (exts.length == 0) {
+            return null;
+        }
+        PointerBuffer pointers = stack.mallocPointer(exts.length);
+        for (String ext : exts) {
+            pointers.put(stack.UTF8("*." + ext));
+        }
+        pointers.flip();
+        return pointers;
+    }
+
+    // Hardcoded export path in Downloads or the game directory; exports must land somewhere.
+    private static String flashbackRedroided$fallbackExportPath(String defaultName, String[] filters) {
+        File exportDir = flashbackRedroided$getExportDir();
+        String fileName = flashbackRedroided$addExtension(defaultName, filters);
+        File output = flashbackRedroided$uniqueOutput(exportDir, fileName);
+        LOGGER.warn("Using default export path: {}", output.getAbsolutePath());
+        return output.getAbsolutePath();
+    }
+
     @Inject(
             method = "saveFileDialog(Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;[Ljava/lang/String;)Ljava/util/concurrent/CompletableFuture;",
             at = @At("HEAD"),
@@ -163,33 +384,47 @@ public class FileDialogMixin {
             String[] filters,
             CallbackInfoReturnable<CompletableFuture<String>> cir
     ) {
-        if (FileActionsPatch.selected()) {
-            cir.setReturnValue(FileActionsBridge.save(defaultName, filters));
+        var future = flashbackRedroided$claimDialog();
+        if (future == null) {
+            cir.setReturnValue(CompletableFuture.completedFuture(null));
             return;
         }
-        File exportDir = flashbackRedroided$getExportDir();
-        String fileName = flashbackRedroided$addExtension(defaultName, filters);
-        File output = flashbackRedroided$uniqueOutput(exportDir, fileName);
-        cir.setReturnValue(CompletableFuture.completedFuture(output.getAbsolutePath()));
-    }
+        cir.setReturnValue(future);
 
-    @Inject(
-            method = "openFolderDialog(Ljava/lang/String;)Ljava/util/concurrent/CompletableFuture;",
-            at = @At("HEAD"),
-            cancellable = true,
-            remap = false,
-            require = 0
-    )
-    private static void flashbackRedroided$openFolderDialog(
-            String defaultPath,
-            CallbackInfoReturnable<CompletableFuture<String>> cir
-    ) {
-        if (FileActionsPatch.selected()) {
-            cir.setReturnValue(FileActionsBridge.folder());
-            return;
-        }
-        File exportDir = flashbackRedroided$getExportDir();
-        cir.setReturnValue(CompletableFuture.completedFuture(exportDir.getAbsolutePath()));
+        String autoExtension =
+                filters.length == 1 ? filters[0] : null;
+
+        flashbackRedroided$dialogChain(
+                future,
+                path -> flashbackRedroided$withExtension(path, autoExtension),
+                () -> {
+                    flashbackRedroided$ensureNfd();
+                    try (var stack = MemoryStack.stackPush()) {
+                        PointerBuffer outPath = stack.callocPointer(1);
+                        int result = NativeFileDialog.NFD_SaveDialog(
+                                outPath,
+                                flashbackRedroided$nfdFilter(stack, filterDescription, filters),
+                                defaultPath != null ? defaultPath : "",
+                                defaultName != null ? defaultName : "export");
+                        if (result == NativeFileDialog.NFD_CANCEL) {
+                            throw new NfdCancelled();
+                        }
+                        if (result != NativeFileDialog.NFD_OKAY) {
+                            return null;
+                        }
+                        return flashbackRedroided$nfdPath(outPath);
+                    }
+                },
+                () -> {
+                    try (var stack = MemoryStack.stackPush()) {
+                        return TinyFileDialogs.tinyfd_saveFileDialog(
+                                filterDescription != null ? filterDescription : "Save file",
+                                defaultName != null && !defaultName.isEmpty() ? defaultName : "export",
+                                flashbackRedroided$tinyPatterns(stack, filters),
+                                filterDescription);
+                    }
+                },
+                () -> flashbackRedroided$fallbackExportPath(defaultName, filters));
     }
 
     @Inject(
@@ -205,11 +440,91 @@ public class FileDialogMixin {
             String[] filters,
             CallbackInfoReturnable<CompletableFuture<String>> cir
     ) {
-        // Mobile has no native dialog to fall back to, so route it through
-        // the folders too; the bridge uses hardcoded paths when selection
-        // never ran.
-        if (FileActionsPatch.selected() || AndroidInput.isMobile()) {
-            cir.setReturnValue(FileActionsBridge.open(filters));
+        var future = flashbackRedroided$claimDialog();
+        if (future == null) {
+            cir.setReturnValue(CompletableFuture.completedFuture(null));
+            return;
         }
+        cir.setReturnValue(future);
+
+        // Imports have no hardcoded fallback: null means the user gets no file.
+        flashbackRedroided$dialogChain(
+                future,
+                path -> path,
+                () -> {
+                    flashbackRedroided$ensureNfd();
+                    try (var stack = MemoryStack.stackPush()) {
+                        PointerBuffer outPath = stack.callocPointer(1);
+                        int result = NativeFileDialog.NFD_OpenDialog(
+                                outPath,
+                                flashbackRedroided$nfdFilter(stack, filterDescription, filters),
+                                defaultPath != null ? defaultPath : "");
+                        if (result == NativeFileDialog.NFD_CANCEL) {
+                            throw new NfdCancelled();
+                        }
+                        if (result != NativeFileDialog.NFD_OKAY) {
+                            return null;
+                        }
+                        return flashbackRedroided$nfdPath(outPath);
+                    }
+                },
+                () -> {
+                    try (var stack = MemoryStack.stackPush()) {
+                        return TinyFileDialogs.tinyfd_openFileDialog(
+                                filterDescription != null ? filterDescription : "Open file",
+                                defaultPath != null ? defaultPath : "",
+                                flashbackRedroided$tinyPatterns(stack, filters),
+                                filterDescription,
+                                false);
+                    }
+                },
+                () -> null);
+    }
+
+    @Inject(
+            method = "openFolderDialog(Ljava/lang/String;)Ljava/util/concurrent/CompletableFuture;",
+            at = @At("HEAD"),
+            cancellable = true,
+            remap = false,
+            require = 0
+    )
+    private static void flashbackRedroided$openFolderDialog(
+            String defaultPath,
+            CallbackInfoReturnable<CompletableFuture<String>> cir
+    ) {
+        var future = flashbackRedroided$claimDialog();
+        if (future == null) {
+            cir.setReturnValue(CompletableFuture.completedFuture(null));
+            return;
+        }
+        cir.setReturnValue(future);
+
+        flashbackRedroided$dialogChain(
+                future,
+                path -> path,
+                () -> {
+                    flashbackRedroided$ensureNfd();
+                    try (var stack = MemoryStack.stackPush()) {
+                        PointerBuffer outPath = stack.callocPointer(1);
+                        int result = NativeFileDialog.NFD_PickFolder(
+                                outPath,
+                                defaultPath != null ? defaultPath : "");
+                        if (result == NativeFileDialog.NFD_CANCEL) {
+                            throw new NfdCancelled();
+                        }
+                        if (result != NativeFileDialog.NFD_OKAY) {
+                            return null;
+                        }
+                        return flashbackRedroided$nfdPath(outPath);
+                    }
+                },
+                () -> TinyFileDialogs.tinyfd_selectFolderDialog(
+                        "Select folder",
+                        defaultPath != null ? defaultPath : ""),
+                () -> {
+                    File exportDir = flashbackRedroided$getExportDir();
+                    LOGGER.warn("Using default export folder: {}", exportDir.getAbsolutePath());
+                    return exportDir.getAbsolutePath();
+                });
     }
 }
