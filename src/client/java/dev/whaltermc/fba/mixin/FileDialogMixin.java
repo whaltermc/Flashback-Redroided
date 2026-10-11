@@ -3,6 +3,7 @@
 package dev.whaltermc.fba.mixin;
 
 import dev.whaltermc.fba.AndroidInput;
+import dev.whaltermc.fba.NfdCancelled;
 import net.minecraft.client.Minecraft;
 import org.lwjgl.PointerBuffer;
 import org.lwjgl.system.MemoryStack;
@@ -20,9 +21,11 @@ import java.io.File;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.concurrent.Callable;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.function.Function;
 
 // Native dialogs, chained: NFD first, then tinyfd, then a hardcoded path.
 // NFD is what Flashback itself uses here; both native legs block, so they run
@@ -50,30 +53,6 @@ public class FileDialogMixin {
 
     // NFD_Init runs once; a missing native library fails there first.
     private static volatile boolean nfdReady;
-
-    // Thrown by an NFD leg the user cancels, so it settles null directly.
-    private static final class NfdCancelled extends Exception {
-    }
-
-    // Blocking NFD call; null or empty when it has nothing to offer.
-    private interface NfdAttempt {
-        String run() throws Throwable;
-    }
-
-    // Blocking tinyfd call; null or empty when it has nothing to offer.
-    private interface TinyAttempt {
-        String run() throws Throwable;
-    }
-
-    // Last-resort hardcoded path; null when there is none (imports).
-    private interface HardFallback {
-        String run() throws Throwable;
-    }
-
-    // Post-processes a picked path; null in, null out when there is nothing to fix.
-    private interface PathFix {
-        String fix(String path);
-    }
 
     private static final String DOWNLOADS_PATH = "/storage/emulated/0/Downloads";
 
@@ -284,18 +263,20 @@ public class FileDialogMixin {
 
     // Shared chain used by all three dialogs, always off-thread: NFD, then
     // tinyfd, then the hardcoded fallback. Cancelled natives settle null
-    // directly; failures fall through to the next leg.
+    // directly; failures fall through to the next leg. Plain JDK functional
+    // types on purpose: helper types inside a mixin package cannot be
+    // referenced and crash loading with IllegalClassLoadError.
     private static void flashbackRedroided$dialogChain(
             CompletableFuture<String> future,
-            PathFix fix,
-            NfdAttempt nfd,
-            TinyAttempt tiny,
-            HardFallback fallback
+            Function<String, String> fix,
+            Callable<String> nfd,
+            Callable<String> tiny,
+            Callable<String> fallback
     ) {
         DIALOG_WORKER.execute(() -> {
             String value = null;
             try {
-                value = fix.fix(nfd.run());
+                value = fix.apply(nfd.call());
             } catch (NfdCancelled cancelled) {
                 flashbackRedroided$settleDialog(future, null);
                 return;
@@ -303,7 +284,7 @@ public class FileDialogMixin {
             }
             if (value == null) {
                 try {
-                    value = fix.fix(tiny.run());
+                    value = fix.apply(tiny.call());
                 } catch (Throwable ignored) {
                     value = null;
                 }
@@ -313,7 +294,7 @@ public class FileDialogMixin {
             }
             if (value == null) {
                 try {
-                    value = fallback.run();
+                    value = fallback.call();
                 } catch (Throwable ignored) {
                     value = null;
                 }
