@@ -174,10 +174,10 @@ public final class AndroidInput {
         if (before == null || before != mode) {
             trace("MODE " + (before == null ? "?" : modeName(before)) + " -> " + modeName(mode));
         }
-        Integer already = CURSOR_MODES.get(window);
-        if (MOBILE && already != null && already == mode) {
-            return;
-        }
+        // Always issue the real call: vanilla Minecraft changes the actual
+        // cursor mode behind this map (screen open/close grabs and releases),
+        // so skipping "redundant" writes desyncs the map and the grab that
+        // follows never reaches GLFW. Vanilla calls through every time.
         noteMode(window, mode);
         CURSOR_MODES.put(window, mode);
         try {
@@ -193,11 +193,8 @@ public final class AndroidInput {
                     && mode != GLFW.GLFW_CURSOR_DISABLED) {
                 return;
             }
-            Integer previous = CURSOR_MODES.get(window);
-            if (previous != null && previous == mode) {
-                return;
-            }
         }
+        // No equality shortcut here either: see setCursorMode.
         setCursorMode(window, mode);
     }
 
