@@ -5,14 +5,10 @@ package dev.whaltermc.fba;
 import org.objectweb.asm.ClassReader;
 import org.objectweb.asm.ClassVisitor;
 import org.objectweb.asm.ClassWriter;
-import org.objectweb.asm.Label;
 import org.objectweb.asm.MethodVisitor;
 import org.objectweb.asm.Opcodes;
-import org.objectweb.asm.Type;
 
 import java.nio.charset.StandardCharsets;
-import java.util.LinkedHashMap;
-import java.util.Map;
 
 public final class ClassPatcher {
 
@@ -97,13 +93,55 @@ public final class ClassPatcher {
         }
     }
 
-    private record Stub(String glfwName, String desc, String stubName) {}
+    // Every other static GLFW call Flashback 0.39.10 makes, mirrored in
+    // GlfwFallback. Calls outside both sets keep their owner so new LWJGL3
+    // functions work natively on modern launchers.
+    private static final java.util.Set<String> SAFE_CALLS = java.util.Set.of(
+            "glfwCreateStandardCursor(I)J",
+            "glfwCreateWindow(IILjava/lang/CharSequence;JJ)J",
+            "glfwDestroyWindow(J)V",
+            "glfwFocusWindow(J)V",
+            "glfwGetCurrentContext()J",
+            "glfwGetFramebufferSize(J[I[I)V",
+            "glfwGetGamepadState(ILorg/lwjgl/glfw/GLFWGamepadState;)Z",
+            "glfwGetKey(JI)I",
+            "glfwGetKeyName(II)Ljava/lang/String;",
+            "glfwGetKeyScancode(I)I",
+            "glfwGetMonitorContentScale(J[F[F)V",
+            "glfwGetMonitorPos(J[I[I)V",
+            "glfwGetMonitorWorkarea(J[I[I[I[I)V",
+            "glfwGetMonitors()Lorg/lwjgl/PointerBuffer;",
+            "glfwGetTime()D",
+            "glfwGetVideoMode(J)Lorg/lwjgl/glfw/GLFWVidMode;",
+            "glfwGetWindowContentScale(J[F[F)V",
+            "glfwGetWindowPos(J[I[I)V",
+            "glfwGetWindowSize(J[I[I)V",
+            "glfwHideWindow(J)V",
+            "glfwMakeContextCurrent(J)V",
+            "glfwSetCharModsCallback(JLorg/lwjgl/glfw/GLFWCharModsCallbackI;)Lorg/lwjgl/glfw/GLFWCharModsCallback;",
+            "glfwSetCursorEnterCallback(JLorg/lwjgl/glfw/GLFWCursorEnterCallbackI;)Lorg/lwjgl/glfw/GLFWCursorEnterCallback;",
+            "glfwSetCursorPosCallback(JLorg/lwjgl/glfw/GLFWCursorPosCallbackI;)Lorg/lwjgl/glfw/GLFWCursorPosCallback;",
+            "glfwSetErrorCallback(Lorg/lwjgl/glfw/GLFWErrorCallbackI;)Lorg/lwjgl/glfw/GLFWErrorCallback;",
+            "glfwSetKeyCallback(JLorg/lwjgl/glfw/GLFWKeyCallbackI;)Lorg/lwjgl/glfw/GLFWKeyCallback;",
+            "glfwSetMonitorCallback(Lorg/lwjgl/glfw/GLFWMonitorCallbackI;)Lorg/lwjgl/glfw/GLFWMonitorCallback;",
+            "glfwSetMouseButtonCallback(JLorg/lwjgl/glfw/GLFWMouseButtonCallbackI;)Lorg/lwjgl/glfw/GLFWMouseButtonCallback;",
+            "glfwSetScrollCallback(JLorg/lwjgl/glfw/GLFWScrollCallbackI;)Lorg/lwjgl/glfw/GLFWScrollCallback;",
+            "glfwSetWindowCloseCallback(JLorg/lwjgl/glfw/GLFWWindowCloseCallbackI;)Lorg/lwjgl/glfw/GLFWWindowCloseCallback;",
+            "glfwSetWindowFocusCallback(JLorg/lwjgl/glfw/GLFWWindowFocusCallbackI;)Lorg/lwjgl/glfw/GLFWWindowFocusCallback;",
+            "glfwSetWindowOpacity(JF)V",
+            "glfwSetWindowPos(JII)V",
+            "glfwSetWindowPosCallback(JLorg/lwjgl/glfw/GLFWWindowPosCallbackI;)Lorg/lwjgl/glfw/GLFWWindowPosCallback;",
+            "glfwSetWindowSize(JII)V",
+            "glfwSetWindowSizeCallback(JLorg/lwjgl/glfw/GLFWWindowSizeCallbackI;)Lorg/lwjgl/glfw/GLFWWindowSizeCallback;",
+            "glfwSetWindowTitle(JLjava/lang/CharSequence;)V",
+            "glfwShowWindow(J)V",
+            "glfwSwapBuffers(J)V",
+            "glfwSwapInterval(I)V",
+            "glfwWindowHint(II)V"
+    );
 
     private static final class GlfwGuard extends ClassVisitor {
 
-        private final Map<String, Stub> stubs = new LinkedHashMap<>();
-        private boolean isInterface;
-        private String className;
         private boolean skip;
 
         GlfwGuard(ClassVisitor next) {
@@ -113,10 +151,9 @@ public final class ClassPatcher {
         @Override
         public void visit(int version, int access, String name, String signature,
                           String superName, String[] interfaces) {
-            this.className = name;
-            this.isInterface = (access & Opcodes.ACC_INTERFACE) != 0;
-            // Never inject stubs into interfaces or our own classes.
-            this.skip = isInterface
+            // Never rewrite interfaces or our own classes: the mirrors call
+            // real GLFW themselves and must not be rerouted into themselves.
+            this.skip = (access & Opcodes.ACC_INTERFACE) != 0
                     || (name != null && name.startsWith("dev/whaltermc/fba/"));
             super.visit(version, access, name, signature, superName, interfaces);
         }
@@ -132,93 +169,20 @@ public final class ClassPatcher {
                 public void visitMethodInsn(int opcode, String owner, String mName,
                                             String mDesc, boolean itf) {
                     if (opcode == Opcodes.INVOKESTATIC && GLFW.equals(owner) && !itf) {
-                        Stub stub = stubs.computeIfAbsent(mName + mDesc,
-                                k -> new Stub(mName, mDesc,
-                                        "fba$glfw$" + mName + "$" + stubs.size()));
-                        super.visitMethodInsn(Opcodes.INVOKESTATIC, className,
-                                stub.stubName(), stub.desc(), isInterface);
-                        return;
+                        String key = mName + mDesc;
+                        if (COMPAT_CALLS.contains(key)) {
+                            super.visitMethodInsn(opcode, COMPAT, mName, mDesc, false);
+                            return;
+                        }
+                        if (SAFE_CALLS.contains(key)) {
+                            super.visitMethodInsn(opcode, SAFETY, mName, mDesc, false);
+                            return;
+                        }
+                        // Unknown to both lists: leave it for native LWJGL3.
                     }
                     super.visitMethodInsn(opcode, owner, mName, mDesc, itf);
                 }
             };
-        }
-
-        @Override
-        public void visitEnd() {
-            for (Stub stub : stubs.values()) {
-                emitStub(stub);
-            }
-            super.visitEnd();
-        }
-
-        private void emitStub(Stub stub) {
-            Type[] args = Type.getArgumentTypes(stub.desc());
-            Type ret = Type.getReturnType(stub.desc());
-
-            MethodVisitor mv = super.visitMethod(
-                    Opcodes.ACC_PRIVATE | Opcodes.ACC_STATIC | Opcodes.ACC_SYNTHETIC,
-                    stub.stubName(), stub.desc(), null, null);
-            mv.visitCode();
-
-            Label start = new Label();
-            Label end = new Label();
-            Label handler = new Label();
-            mv.visitTryCatchBlock(start, end, handler, "java/lang/LinkageError");
-            mv.visitTryCatchBlock(start, end, handler, "java/lang/RuntimeException");
-
-            mv.visitLabel(start);
-            int slot = 0;
-            Object[] frameLocals = new Object[args.length];
-            for (int i = 0; i < args.length; i++) {
-                mv.visitVarInsn(args[i].getOpcode(Opcodes.ILOAD), slot);
-                slot += args[i].getSize();
-                frameLocals[i] = frameType(args[i]);
-            }
-            String target = COMPAT_CALLS.contains(stub.glfwName() + stub.desc()) ? COMPAT : GLFW;
-            mv.visitMethodInsn(Opcodes.INVOKESTATIC, target, stub.glfwName(), stub.desc(), false);
-            mv.visitLabel(end);
-            mv.visitInsn(returnOpcode(ret));
-
-            mv.visitLabel(handler);
-            mv.visitFrame(Opcodes.F_NEW, frameLocals.length, frameLocals,
-                    1, new Object[]{"java/lang/Throwable"});
-            mv.visitVarInsn(Opcodes.ASTORE, slot);
-            mv.visitLdcInsn(stub.glfwName());
-            mv.visitVarInsn(Opcodes.ALOAD, slot);
-            mv.visitMethodInsn(Opcodes.INVOKESTATIC, SAFETY, "missing",
-                    "(Ljava/lang/String;Ljava/lang/Throwable;)V", false);
-            pushZero(mv, ret);
-            mv.visitInsn(returnOpcode(ret));
-
-            mv.visitMaxs(slot + 2, slot + 1);
-            mv.visitEnd();
-        }
-
-        private static Object frameType(Type t) {
-            return switch (t.getSort()) {
-                case Type.BOOLEAN, Type.CHAR, Type.BYTE, Type.SHORT, Type.INT -> Opcodes.INTEGER;
-                case Type.FLOAT -> Opcodes.FLOAT;
-                case Type.LONG -> Opcodes.LONG;
-                case Type.DOUBLE -> Opcodes.DOUBLE;
-                case Type.ARRAY -> t.getDescriptor();
-                default -> t.getInternalName();
-            };
-        }
-
-        private static int returnOpcode(Type ret) {
-            return ret.getSort() == Type.VOID ? Opcodes.RETURN : ret.getOpcode(Opcodes.IRETURN);
-        }
-
-        private static void pushZero(MethodVisitor mv, Type ret) {
-            switch (ret.getSort()) {
-                case Type.VOID -> { }
-                case Type.LONG -> mv.visitInsn(Opcodes.LCONST_0);
-                case Type.FLOAT -> mv.visitInsn(Opcodes.FCONST_0);
-                case Type.DOUBLE -> mv.visitInsn(Opcodes.DCONST_0);
-                case Type.OBJECT, Type.ARRAY -> mv.visitInsn(Opcodes.ACONST_NULL);
-                default -> mv.visitInsn(Opcodes.ICONST_0);
-            }
         }
     }
 

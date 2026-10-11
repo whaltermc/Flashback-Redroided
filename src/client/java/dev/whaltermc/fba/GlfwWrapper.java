@@ -26,8 +26,11 @@ public final class GlfwWrapper {
     public static void glfwSetInputMode(long window, int mode, int value) {
         if (mode == GLFW.GLFW_CURSOR) {
             AndroidInput.requestCursorMode(window, value);
-        } else {
+            return;
+        }
+        try {
             GLFW.glfwSetInputMode(window, mode, value);
+        } catch (LinkageError | RuntimeException ignored) {
         }
     }
 
@@ -40,7 +43,11 @@ public final class GlfwWrapper {
     }
 
     public static int glfwGetWindowAttrib(long window, int attrib) {
-        int value = GLFW.glfwGetWindowAttrib(window, attrib);
+        int value = 0;
+        try {
+            value = GLFW.glfwGetWindowAttrib(window, attrib);
+        } catch (LinkageError | RuntimeException ignored) {
+        }
         if (attrib == GLFW.GLFW_FOCUSED) {
             boolean forced = value == 0 && AndroidInput.isMobile();
             debug(0, "GLFW_FOCUSED raw=" + value + (forced ? " -> forced to 1 (mobile)" : ""));
@@ -52,7 +59,11 @@ public final class GlfwWrapper {
     }
 
     public static int glfwGetMouseButton(long window, int button) {
-        int state = GLFW.glfwGetMouseButton(window, button);
+        int state = 0;
+        try {
+            state = GLFW.glfwGetMouseButton(window, button);
+        } catch (LinkageError | RuntimeException ignored) {
+        }
         state = AndroidInput.mouseButton(button, state);
         if (state != 0) {
             lastPressMs = System.currentTimeMillis();
@@ -62,7 +73,16 @@ public final class GlfwWrapper {
     }
 
     public static int glfwGetInputMode(long window, int mode) {
-        int value = GLFW.glfwGetInputMode(window, mode);
+        int value;
+        try {
+            value = GLFW.glfwGetInputMode(window, mode);
+        } catch (LinkageError | RuntimeException ignored) {
+            if (mode != GLFW.GLFW_CURSOR) {
+                return 0;
+            }
+            int recorded = AndroidInput.recordedCursorMode(window);
+            value = recorded != -1 ? recorded : GLFW.GLFW_CURSOR_NORMAL;
+        }
         if (mode == GLFW.GLFW_CURSOR) {
             value = AndroidInput.reportedCursorMode(window, value);
             debug(2, "cursor mode=" + value + " (212993 normal, 212994 hidden, 212995 disabled)");
@@ -74,13 +94,14 @@ public final class GlfwWrapper {
         AndroidInput.frame();
         try {
             GLFW.glfwGetCursorPos(window, x, y);
-        } catch (LinkageError e) {
+        } catch (LinkageError | RuntimeException first) {
             try (MemoryStack stack = MemoryStack.stackPush()) {
                 DoubleBuffer bx = stack.mallocDouble(1);
                 DoubleBuffer by = stack.mallocDouble(1);
                 GLFW.glfwGetCursorPos(window, bx, by);
                 x[0] = bx.get(0);
                 y[0] = by.get(0);
+            } catch (LinkageError | RuntimeException ignored) {
             }
         }
         AndroidInput.motion(x[0], y[0]);
@@ -94,12 +115,15 @@ public final class GlfwWrapper {
         AndroidInput.frame();
         try {
             GLFW.glfwGetCursorPos(window, x, y);
-        } catch (LinkageError e) {
-            double[] ax = new double[1];
-            double[] ay = new double[1];
-            GLFW.glfwGetCursorPos(window, ax, ay);
-            x.put(0, ax[0]);
-            y.put(0, ay[0]);
+        } catch (LinkageError | RuntimeException first) {
+            try {
+                double[] ax = new double[1];
+                double[] ay = new double[1];
+                GLFW.glfwGetCursorPos(window, ax, ay);
+                x.put(0, ax[0]);
+                y.put(0, ay[0]);
+            } catch (LinkageError | RuntimeException ignored) {
+            }
         }
         AndroidInput.motion(x.get(0), y.get(0));
         double[] v = AndroidInput.adjustCursor(window, x.get(0), y.get(0));
