@@ -51,9 +51,12 @@ public final class GlfwFallback {
     private static final Set<String> REPORTED = ConcurrentHashMap.newKeySet();
 
     // Zeroed video mode returned when the real query is unavailable. Backed by
-    // one never-freed calloc allocation: callers only read width/height from it.
-    private static final GLFWVidMode EMPTY_VIDEO_MODE = GLFWVidMode.create(
-            MemoryUtil.memAddress(MemoryUtil.memCalloc(GLFWVidMode.SIZEOF)));
+    // one never-freed calloc allocation, created lazily so class loading never
+    // touches natives: callers only read width/height from it.
+    private static final class EmptyVideoMode {
+        static final GLFWVidMode INSTANCE = GLFWVidMode.create(
+                MemoryUtil.memAddress(MemoryUtil.memCalloc(GLFWVidMode.SIZEOF)));
+    }
 
     private GlfwFallback() {}
 
@@ -151,7 +154,7 @@ public final class GlfwFallback {
             return GLFW.glfwGetVideoMode(monitor);
         } catch (LinkageError | RuntimeException e) {
             missing("glfwGetVideoMode", e);
-            return EMPTY_VIDEO_MODE;
+            return EmptyVideoMode.INSTANCE;
         }
     }
 
