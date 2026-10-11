@@ -92,20 +92,6 @@ public class FbaPreLaunch implements PreLaunchEntrypoint {
                     && args != null && args.length >= 3
                     && args[2] instanceof byte[]) {
 
-                String preName = args[0] != null ? args[0].toString() : "";
-
-                // Lattice must see the bridge BEFORE mixins apply: a failing
-                // @Overwrite aborts inside the real transformer, after which
-                // no post-patch could run. addLatticeDropdownBridge is a
-                // no-op on fixed lattice, so this is safe to always attempt.
-                if (isLatticeDropdownEntry(preName)) {
-                    try {
-                        args[2] = ClassPatcher.addLatticeDropdownBridge((byte[]) args[2]);
-                    } catch (Throwable t) {
-                        LOGGER.debug("Lattice bridge skipped for {}: {}", preName, t.getMessage());
-                    }
-                }
-
                 Object result = method.invoke(target, args);
 
                 byte[] bytes = result instanceof byte[]
@@ -152,14 +138,6 @@ public class FbaPreLaunch implements PreLaunchEntrypoint {
     private static boolean shouldPatch(String className) {
         if (className == null || className.isEmpty()) return false;
         return className.replace('/', '.').startsWith("com.moulberry.flashback.");
-    }
-
-    // The single lattice class whose 1.21.9-era mixin no longer matches its
-    // own 1.21.11-era bytecode. Nothing else under com.moulberry.lattice is
-    // ever touched.
-    private static boolean isLatticeDropdownEntry(String className) {
-        if (className == null || className.isEmpty()) return false;
-        return className.replace('/', '.').equals("com.moulberry.lattice.widget.DropdownWidget$Entry");
     }
 
     // ── Reflection helpers ────────────────────────────────────────────────────
